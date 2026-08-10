@@ -22,6 +22,7 @@ import type {
   SearchResult,
   ShoppingList,
   Supplier,
+  SupplierCandidate,
   Transaction,
   UserResponse,
 } from "./types";
@@ -224,6 +225,16 @@ export const api = {
   createSupplier: (body: { name: string; website?: string; notes?: string }) =>
     request<Supplier>("/suppliers", json("POST", body)),
   deleteSupplier: (id: string) => request<void>(`/suppliers/${id}`, json("DELETE")),
+  supplierLookup: (source: string, q: string) =>
+    request<SupplierCandidate[]>(
+      `/suppliers/lookup?source=${encodeURIComponent(source)}&q=${encodeURIComponent(q)}`
+    ),
+  supplierImport: (body: {
+    source: string;
+    part_number: string;
+    quantity?: number;
+    location_id?: string;
+  }) => request<Part>("/suppliers/import", json("POST", body)),
 
   // organizers
   organizerPresets: () => request<Record<string, OrganizerPreset>>("/organizers/presets"),

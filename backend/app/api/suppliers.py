@@ -25,6 +25,7 @@ from app.services.part_ids import generate_internal_id
 from app.services.queries import enrich_part, load_part
 from app.services.supplier_catalog import (
     SupplierUnavailableError,
+    normalize_lcsc_id,
     supplier_lookup,
     supplier_search,
 )
@@ -50,6 +51,8 @@ def _save_datasheet(url: str | None, part_id: str) -> None:
     except DatasheetFetchError:
         return
     mime = content_type.split(";")[0].strip().lower() or "application/octet-stream"
+    if mime.startswith("text/"):
+        return  # error page or HTML redirect, not a datasheet
     filename = datasheet_filename(url, part_id)
     if "pdf" in mime and not filename.lower().endswith(".pdf"):
         filename = f"{Path(filename).stem}.pdf"
@@ -116,13 +119,22 @@ def lookup_products(
     user: User = Depends(get_current_user),
 ):
     """Search a supplier catalog by keyword or part number."""
+    source = (source or "").strip().lower()
+    query = (q or "").strip()
+    if source == "lcsc":
+        lcsc_id = normalize_lcsc_id(query)
+        if lcsc_id:
+            try:
+                return [supplier_lookup(source, lcsc_id).to_dict()]
+            except SupplierUnavailableError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
     try:
-        candidates = supplier_search(source, q)
+        candidates = supplier_search(source, query)
     except SupplierUnavailableError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     if not candidates:
         try:
-            candidates = [supplier_lookup(source, q)]
+            candidates = [supplier_lookup(source, query)]
         except SupplierUnavailableError:
             return []
     return [c.to_dict() for c in candidates]

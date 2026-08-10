@@ -379,3 +379,21 @@ export interface Attachment {
   source_url: string | null;
   created_at: string;
 }
+
+// ---------- Supplier catalog ----------
+export interface SupplierCandidate {
+  source: string;
+  part_number: string;
+  mpn: string | null;
+  manufacturer: string | null;
+  description: string | null;
+  value: string | null;
+  package: string | null;
+  category: string | null;
+  datasheet_url: string | null;
+  price: number | null;
+  currency: string | null;
+  stock: number | null;
+  url: string | null;
+  specs: Record<string, string>;
+}

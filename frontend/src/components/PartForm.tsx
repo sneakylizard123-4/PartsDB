@@ -1,22 +1,51 @@
 import { useState } from "react";
+import { PACKAGES, PART_CATEGORIES, TOLERANCES } from "../constants";
 import type { Part, PartCreate } from "../types";
 
-const FIELDS: { key: keyof PartCreate; label: string; type?: string; col?: boolean }[] = [
-  { key: "internal_id", label: "Internal ID", col: true },
+const FIELDS: {
+  key: keyof PartCreate;
+  label: string;
+  type?: string;
+  options?: string[];
+}[] = [
   { key: "value", label: "Value" },
-  { key: "package", label: "Package" },
-  { key: "category", label: "Category" },
+  { key: "package", label: "Package", options: PACKAGES },
+  { key: "category", label: "Category", options: PART_CATEGORIES },
   { key: "manufacturer", label: "Manufacturer" },
   { key: "mpn", label: "MPN" },
   { key: "lcsc_number", label: "LCSC #" },
   { key: "digikey_number", label: "DigiKey #" },
-  { key: "tolerance", label: "Tolerance" },
+  { key: "tolerance", label: "Tolerance", options: TOLERANCES },
   { key: "voltage_rating", label: "Voltage rating" },
   { key: "current_rating", label: "Current rating" },
   { key: "min_qty", label: "Min qty", type: "number" },
   { key: "desired_qty", label: "Desired qty", type: "number" },
   { key: "reorder_qty", label: "Reorder qty", type: "number" },
 ];
+
+function SelectField({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">— none —</option>
+      {value && !options.includes(value) && (
+        <option value={value}>{value}</option>
+      )}
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export default function PartForm({
   initial,
@@ -64,24 +93,24 @@ export default function PartForm({
         onSubmit(build());
       }}
     >
-      <div className="field">
-        <label>Internal ID</label>
-        <input
-          value={form["internal_id"]}
-          onChange={(e) => set("internal_id", e.target.value)}
-          placeholder="RES-0603-10K"
-          autoFocus
-        />
-      </div>
       <div className="form-row">
-        {FIELDS.filter((f) => f.key !== "internal_id").map((f) => (
+        {FIELDS.map((f) => (
           <div className="field" key={String(f.key)}>
             <label>{f.label}</label>
-            <input
-              type={f.type ?? "text"}
-              value={form[String(f.key)]}
-              onChange={(e) => set(String(f.key), e.target.value)}
-            />
+            {f.options ? (
+              <SelectField
+                value={form[String(f.key)]}
+                options={f.options}
+                onChange={(v) => set(String(f.key), v)}
+              />
+            ) : (
+              <input
+                type={f.type ?? "text"}
+                value={form[String(f.key)]}
+                onChange={(e) => set(String(f.key), e.target.value)}
+                autoFocus={f.key === "value"}
+              />
+            )}
           </div>
         ))}
       </div>

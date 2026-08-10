@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Parts from "./pages/Parts";
 import NewPart from "./pages/NewPart";
+import SupplierImport from "./pages/SupplierImport";
 import PartDetail from "./pages/PartDetail";
 import Inventory from "./pages/Inventory";
 import Transactions from "./pages/Transactions";
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/parts" element={<Parts />} />
           <Route path="/parts/new" element={<NewPart />} />
+          <Route path="/import" element={<SupplierImport />} />
           <Route path="/parts/:id" element={<PartDetail />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/transactions" element={<Transactions />} />

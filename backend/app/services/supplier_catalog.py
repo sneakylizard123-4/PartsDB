@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+import re
 import string
 import time
 from dataclasses import dataclass, field
@@ -59,6 +60,22 @@ VALUE_SPECS = [
 
 class SupplierUnavailableError(RuntimeError):
     """Raised when a supplier catalog cannot be reached or is not configured."""
+
+
+def normalize_lcsc_id(value: str | None) -> str | None:
+    """Normalize an LCSC part number, adding the leading 'C' when missing.
+
+    Returns the normalized code if the input looks like an LCSC part number
+    (digits, or 'C' followed by digits), otherwise None.
+    """
+    code = (value or "").strip().upper()
+    if not code:
+        return None
+    if re.fullmatch(r"\d{4,8}", code):
+        return "C" + code
+    if re.fullmatch(r"C\d{4,8}", code):
+        return code
+    return None
 
 
 def infer_category(*texts: str | None) -> str | None:
@@ -305,7 +322,7 @@ class LCSCCatalog(BaseCatalog):
         return self._candidate(result)
 
     def lookup(self, part_number: str) -> SupplierCandidate:
-        code = part_number.strip()
+        code = normalize_lcsc_id(part_number) or part_number.strip()
         if not code:
             raise SupplierUnavailableError("Empty LCSC part number")
         if self.api_key:

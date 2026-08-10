@@ -11,6 +11,7 @@ const Icon = ({ d }: { d: string }) => (
 const NAV = [
   { to: "/", label: "Dashboard", icon: "M3 13h8V3H3zm0 8h8v-6H3zm10 0h8V11h-8zM13 3v6h8V3z", end: true },
   { to: "/parts", label: "Parts", icon: "M20.6 6.6 12 2 3.4 6.6v10.8L12 22l8.6-4.6zm0 0L12 11m8.6-4.4L12 11m0 0v11M3.4 6.6 12 11", end: false },
+  { to: "/import", label: "Import", icon: "M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2", end: false },
   { to: "/inventory", label: "Inventory", icon: "M12 3v18M5 8l14-3m-7 7 7-2M5 16l14 2", end: false },
   { to: "/locations", label: "Locations", icon: "M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 1 1 16 0zm-5 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0z", end: false },
   { to: "/transactions", label: "Transactions", icon: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", end: false },
