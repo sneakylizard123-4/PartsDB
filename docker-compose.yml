@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-partsdb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-partsdb}
+      POSTGRES_DB: ${POSTGRES_DB:-partsdb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-partsdb} -d ${POSTGRES_DB:-partsdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-partsdb}:${POSTGRES_PASSWORD:-partsdb}@postgres:5432/${POSTGRES_DB:-partsdb}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ATTACHMENTS_DIR: ${ATTACHMENTS_DIR:-/app/data/attachments}
+      BACKUPS_DIR: ${BACKUPS_DIR:-/app/data/backups}
+      LCSC_API_KEY: ${LCSC_API_KEY:-}
+      DIGIKEY_CLIENT_ID: ${DIGIKEY_CLIENT_ID:-}
+      DIGIKEY_CLIENT_SECRET: ${DIGIKEY_CLIENT_SECRET:-}
+      DIGIKEY_API_TOKEN: ${DIGIKEY_API_TOKEN:-}
+      AI_PROVIDER: ${AI_PROVIDER:-none}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+    volumes:
+      - attachments_data:/app/data/attachments
+      - backups_data:/app/data/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+
+volumes:
+  postgres_data:
+  attachments_data:
+  backups_data:
