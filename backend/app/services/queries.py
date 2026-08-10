@@ -79,6 +79,7 @@ def enrich_part(db: Session, part: Part) -> dict:
         "tolerance": part.tolerance,
         "voltage_rating": part.voltage_rating,
         "current_rating": part.current_rating,
+        "msl": part.msl,
         "other_specs": part.other_specs,
         "datasheet_url": part.datasheet_url,
         "notes": part.notes,

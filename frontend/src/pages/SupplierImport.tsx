@@ -189,7 +189,10 @@ export default function SupplierImport() {
                       {c.value && <div className="mono small">{c.value}</div>}
                       {specs && <div className="muted small">{specs}</div>}
                     </td>
-                    <td className="mono small">{c.package}</td>
+                    <td className="mono small">
+                      {c.package}
+                      {c.msl && <div className="muted small">{c.msl}</div>}
+                    </td>
                     <td className="small">{c.category}</td>
                     <td className="num small">
                       {c.price !== null && c.price !== undefined

@@ -78,6 +78,7 @@ class PartCreate(BaseModel):
     tolerance: str | None = None
     voltage_rating: str | None = None
     current_rating: str | None = None
+    msl: str | None = None
     other_specs: dict[str, Any] = Field(default_factory=dict)
     datasheet_url: str | None = None
     notes: str | None = None
@@ -99,6 +100,7 @@ class PartUpdate(BaseModel):
     tolerance: str | None = None
     voltage_rating: str | None = None
     current_rating: str | None = None
+    msl: str | None = None
     other_specs: dict[str, Any] | None = None
     datasheet_url: str | None = None
     notes: str | None = None
@@ -134,6 +136,7 @@ class PartOut(ORMModel):
     tolerance: str | None
     voltage_rating: str | None
     current_rating: str | None
+    msl: str | None
     other_specs: dict[str, Any] = Field(default_factory=dict)
     datasheet_url: str | None
     notes: str | None
@@ -262,6 +265,7 @@ class SupplierCandidateOut(BaseModel):
     value: str | None = None
     package: str | None = None
     category: str | None = None
+    msl: str | None = None
     datasheet_url: str | None = None
     price: float | None = None
     currency: str | None = None

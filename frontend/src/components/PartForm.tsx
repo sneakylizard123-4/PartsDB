@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PACKAGES, PART_CATEGORIES, TOLERANCES } from "../constants";
+import { MSL_LEVELS, PACKAGES, PART_CATEGORIES, TOLERANCES } from "../constants";
 import type { Part, PartCreate } from "../types";
 
 const FIELDS: {
@@ -18,6 +18,7 @@ const FIELDS: {
   { key: "tolerance", label: "Tolerance", options: TOLERANCES },
   { key: "voltage_rating", label: "Voltage rating" },
   { key: "current_rating", label: "Current rating" },
+  { key: "msl", label: "MSL", options: MSL_LEVELS },
   { key: "min_qty", label: "Min qty", type: "number" },
   { key: "desired_qty", label: "Desired qty", type: "number" },
   { key: "reorder_qty", label: "Reorder qty", type: "number" },

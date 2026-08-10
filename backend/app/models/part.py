@@ -25,6 +25,7 @@ class Part(BaseModel, Base):
     tolerance: Mapped[str | None] = mapped_column(String(64))
     voltage_rating: Mapped[str | None] = mapped_column(String(64))
     current_rating: Mapped[str | None] = mapped_column(String(64))
+    msl: Mapped[str | None] = mapped_column(String(16))  # moisture sensitivity level
     other_specs: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
     datasheet_url: Mapped[str | None] = mapped_column(String(512))

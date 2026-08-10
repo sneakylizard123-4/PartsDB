@@ -205,6 +205,7 @@ def import_product(
         package=candidate.package,
         category=candidate.category,
         description=candidate.description,
+        msl=candidate.msl,
         datasheet_url=candidate.datasheet_url,
         other_specs=candidate.specs,
     )

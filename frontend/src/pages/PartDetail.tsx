@@ -38,7 +38,9 @@ function AdjustModal({
 
   useAsync(async () => {
     const locs = await api.listLocations();
-    setLocations(locs.map((l) => ({ id: l.id, name: l.full_path || l.name })));
+    const mapped = locs.map((l) => ({ id: l.id, name: l.full_path || l.name }));
+    setLocations(mapped);
+    setLocationId((cur) => cur || mapped[0]?.id || "");
     setReady(true);
     return null;
   }, []);
@@ -93,6 +95,7 @@ function AdjustModal({
       <div className="field">
         <label>{type === "move" ? "From location" : "Location"}</label>
         <select value={locationId} onChange={(e) => setLocationId(e.target.value)} disabled={!ready}>
+          {!locationId && <option value="">Select location…</option>}
           {locations.map((l) => (
             <option key={l.id} value={l.id}>
               {l.name}
@@ -127,7 +130,7 @@ function AdjustModal({
         <button className="btn ghost" onClick={onClose}>
           Cancel
         </button>
-        <button className="btn" onClick={submit} disabled={busy || (type === "move" && !toLocationId)}>
+        <button className="btn" onClick={submit} disabled={busy || !locationId || (type === "move" && !toLocationId)}>
           {busy ? "Saving…" : "Confirm"}
         </button>
       </div>
@@ -270,6 +273,7 @@ export default function PartDetail() {
     ["Tolerance", part.tolerance ?? ""],
     ["Voltage", part.voltage_rating ?? ""],
     ["Current", part.current_rating ?? ""],
+    ["MSL", part.msl ?? ""],
     ["Category", part.category ?? ""],
     ["Min qty", part.min_qty?.toString() ?? ""],
     ["Desired qty", part.desired_qty?.toString() ?? ""],

@@ -15,7 +15,7 @@ class InventoryTransaction(BaseModel, Base):
     __tablename__ = "inventory_transactions"
 
     part_id: Mapped[str] = mapped_column(
-        ForeignKey("parts.id", ondelete="RESTRICT"), index=True
+        ForeignKey("parts.id", ondelete="CASCADE"), index=True
     )
     location_id: Mapped[str] = mapped_column(
         ForeignKey("locations.id", ondelete="RESTRICT"), index=True

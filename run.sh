@@ -13,6 +13,9 @@
 #   ./run.sh rebuild    rebuild images and recreate containers
 #   ./run.sh status     show container status
 #
+# Works offline: builds use --pull never (no image pulls) and only changed
+# layers rebuild, so pip/npm install layers stay cached.
+#
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -39,12 +42,12 @@ esac
 case "$CMD" in
   up|start)
     echo ">> Building and starting PartsDB..."
-    $COMPOSE up -d --build
+    $COMPOSE up -d --build --pull never
     ;;
 
   rebuild)
     echo ">> Rebuilding images and recreating containers..."
-    $COMPOSE up -d --build --force-recreate
+    $COMPOSE up -d --build --pull never --force-recreate
     ;;
 
   down|stop)

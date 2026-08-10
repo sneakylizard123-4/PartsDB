@@ -8,6 +8,7 @@ the inventory system must keep working when external catalogs are down.
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import re
 import string
@@ -116,6 +117,7 @@ class SupplierCandidate:
     value: str | None = None
     package: str | None = None
     category: str | None = None
+    msl: str | None = None
     datasheet_url: str | None = None
     price: float | None = None
     currency: str | None = None
@@ -133,6 +135,7 @@ class SupplierCandidate:
             "value": self.value,
             "package": self.package,
             "category": self.category,
+            "msl": self.msl,
             "datasheet_url": self.datasheet_url,
             "price": self.price,
             "currency": self.currency,
@@ -143,18 +146,27 @@ class SupplierCandidate:
 
 
 def _specs_from_attrs(attrs: Any) -> dict[str, Any]:
-    """Normalize LCSC ``productAttribute`` / DigiKey ``productDetails`` lists."""
+    """Normalize LCSC ``productAttribute`` / ``paramVOList`` / DigiKey ``productDetails`` lists."""
     out: dict[str, Any] = {}
     if not isinstance(attrs, list):
         return out
     for item in attrs:
         if not isinstance(item, dict):
             continue
-        label = item.get("attributeNameEn") or item.get("attributeName") or item.get(
-            "label"
-        ) or item.get("parameter")
-        value = item.get("attributeValueEn") or item.get("attributeValue") or item.get(
-            "value"
+        label = (
+            item.get("attributeNameEn")
+            or item.get("attributeName")
+            or item.get("paramNameEn")
+            or item.get("paramName")
+            or item.get("label")
+            or item.get("parameter")
+        )
+        value = (
+            item.get("attributeValueEn")
+            or item.get("attributeValue")
+            or item.get("paramValueEn")
+            or item.get("paramValue")
+            or item.get("value")
         )
         if label and value is not None:
             out[str(label).strip()] = value
@@ -166,6 +178,34 @@ def _value_from_specs(specs: dict[str, Any]) -> str | None:
         if any(key in label.lower() for key in VALUE_SPECS):
             if isinstance(value, (int, float)) or (isinstance(value, str) and value.strip()):
                 return str(value)
+    return None
+
+
+def _normalize_msl(raw: Any) -> str | None:
+    """Normalize a moisture sensitivity level value to ``MSL {level}``."""
+    if isinstance(raw, (int, float)):
+        text = str(int(raw))
+    else:
+        text = str(raw or "").strip()
+    match = re.search(r"(\d+)\s*[aA]?", text)
+    if not match:
+        return None
+    suffix = match.group(0)[-1].lower()
+    level = int(match.group(1))
+    if not 1 <= level <= 6:
+        return None
+    return f"MSL {level}{'a' if suffix == 'a' else ''}"
+
+
+def _msl_from_specs(specs: dict[str, Any]) -> str | None:
+    """Find a moisture sensitivity level value in a specs dict."""
+    for label, value in specs.items():
+        lowered = str(label).lower()
+        if "moisture" not in lowered and "msl" not in lowered:
+            continue
+        normalized = _normalize_msl(value)
+        if normalized:
+            return normalized
     return None
 
 
@@ -190,10 +230,39 @@ class BaseCatalog:
         except ValueError as exc:
             raise SupplierUnavailableError(f"{self.source} returned invalid JSON") from exc
 
+    def _get_text(self, url: str) -> str:
+        try:
+            with httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers=self._headers()) as client:
+                response = client.get(url)
+        except httpx.HTTPError as exc:
+            raise SupplierUnavailableError(f"{self.source} network error: {exc}") from exc
+        if response.status_code != 200:
+            raise SupplierUnavailableError(
+                f"{self.source} returned HTTP {response.status_code}"
+            )
+        return response.text
+
+    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        headers = {**self._headers(), "Content-Type": "application/json"}
+        try:
+            with httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers=headers) as client:
+                response = client.post(url, json=payload)
+        except httpx.HTTPError as exc:
+            raise SupplierUnavailableError(f"{self.source} network error: {exc}") from exc
+        if response.status_code != 200:
+            raise SupplierUnavailableError(
+                f"{self.source} returned HTTP {response.status_code}"
+            )
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise SupplierUnavailableError(f"{self.source} returned invalid JSON") from exc
+
 
 class LCSCCatalog(BaseCatalog):
     source = "lcsc"
-    PUBLIC_BASE = "https://wmsc.lcsc.com/wmsc"
+    DETAIL_API = "https://wmsc.lcsc.com/ftps/wm/product/detail"
+    SEARCH_API = "https://wmsc.lcsc.com/ftps/wm/product/query/list"
     AGENT_BASE = "https://ips.lcsc.com/rest/wmsc2agent"
 
     def __init__(self, settings) -> None:
@@ -201,22 +270,31 @@ class LCSCCatalog(BaseCatalog):
 
     def _headers(self) -> dict[str, str]:
         return {
-            "User-Agent": USER_AGENT,
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
             "Referer": "https://www.lcsc.com/",
+            "Accept-Language": "en-US,en;q=0.9",
         }
 
     def _product_url(self, code: str) -> str:
         return f"https://www.lcsc.com/product-detail/{code}.html"
 
     def _price_info(self, raw: Any) -> tuple[float | None, str | None]:
-        """Accept LCSC priceList (list) or price (dict) shapes."""
+        """Accept LCSC priceList / productPriceList (list) or price (dict) shapes."""
         currency = None
         prices: list[float] = []
         if isinstance(raw, list):
             for item in raw:
                 if isinstance(item, dict):
                     price = _to_float(
-                        item.get("vipPrice") or item.get("price") or item.get("ladderPrice")
+                        item.get("vipPrice")
+                        or item.get("price")
+                        or item.get("ladderPrice")
+                        or item.get("productPrice")
+                        or item.get("usdPrice")
+                        or item.get("currencyPrice")
                     )
                     if price is not None:
                         prices.append(price)
@@ -240,16 +318,26 @@ class LCSCCatalog(BaseCatalog):
             raw.get("productAttribute")
             or raw.get("product_attribute")
             or raw.get("productDetails")
+            or raw.get("paramVOList")
+            or raw.get("paramPOList")
         )
         if not specs and isinstance(raw.get("specifications"), dict):
             specs = {k: str(v) for k, v in raw["specifications"].items()}
 
         code = raw.get("productCode") or raw.get("product_code") or raw.get("lcsc_part_number")
-        price, currency = self._price_info(raw.get("priceList") or raw.get("price"))
+        price, currency = self._price_info(
+            raw.get("priceList")
+            or raw.get("price")
+            or raw.get("productPriceList")
+            or raw.get("price_list")
+        )
+        if currency == "USD" and raw.get("currencyType"):
+            currency = raw.get("currencyType")
 
         description = (
             raw.get("productIntroEn")
             or raw.get("product_intro_en")
+            or raw.get("productDescEn")
             or raw.get("productDescriptionEn")
             or raw.get("productDescription")
             or raw.get("description")
@@ -260,12 +348,22 @@ class LCSCCatalog(BaseCatalog):
             or raw.get("packageEn")
             or raw.get("packageStandard")
         )
-        category_hint = raw.get("catalogName") or raw.get("productGroupEn") or raw.get("category")
+        category_hint = (
+            raw.get("catalogName")
+            or raw.get("productGroupEn")
+            or raw.get("parentCatalogName")
+            or raw.get("category")
+        )
         category = (
             infer_category(category_hint, description, str(specs))
             if isinstance(category_hint, str)
             else infer_category(description, str(specs))
         )
+        msl_raw = raw.get("moistureSensitivityLevel")
+        if msl_raw is None:
+            msl_raw = _msl_from_specs(specs)
+        else:
+            msl_raw = _normalize_msl(msl_raw)
 
         return SupplierCandidate(
             source=self.source,
@@ -278,13 +376,17 @@ class LCSCCatalog(BaseCatalog):
             value=raw.get("value") or _value_from_specs(specs),
             package=package,
             category=category,
-            datasheet_url=raw.get("datasheetUrl") or raw.get("datasheet_url"),
+            msl=msl_raw if isinstance(msl_raw, str) and msl_raw.strip() else None,
+            datasheet_url=raw.get("datasheetUrl") or raw.get("datasheet_url") or raw.get("pdfUrl"),
             price=price,
             currency=currency,
             stock=_to_int(
-                raw.get("supplyQty") or raw.get("stock") or raw.get("stock_number")
+                raw.get("supplyQty")
+                or raw.get("stock")
+                or raw.get("stock_number")
+                or raw.get("stockNumber")
             ),
-            url=raw.get("productUrl") or (self._product_url(str(code)) if code else None),
+            url=raw.get("productUrl") or raw.get("url") or (self._product_url(str(code)) if code else None),
             specs=specs,
         )
 
@@ -321,6 +423,28 @@ class LCSCCatalog(BaseCatalog):
             )
         return self._candidate(result)
 
+    def _candidate_from_page(self, code: str, html: str) -> SupplierCandidate:
+        """Parse the product detail page's embedded ``__NEXT_DATA__`` JSON."""
+        match = re.search(
+            r'<script id="__NEXT_DATA__" type="application/json"[^>]*>(.*?)</script>',
+            html,
+            re.DOTALL,
+        )
+        if not match:
+            raise SupplierUnavailableError(f"lcsc: product page has no data ({code})")
+        try:
+            data = json.loads(match.group(1))
+        except ValueError as exc:
+            raise SupplierUnavailableError(f"lcsc: invalid embedded JSON ({code})") from exc
+        web = data.get("props", {}).get("pageProps", {}).get("webData") or {}
+        if not isinstance(web, dict) or not web.get("productCode"):
+            raise SupplierUnavailableError(f"lcsc: product not found ({code})")
+        return self._candidate(web)
+
+    def _lookup_page(self, code: str) -> SupplierCandidate:
+        html = self._get_text(self._product_url(code))
+        return self._candidate_from_page(code, html)
+
     def lookup(self, part_number: str) -> SupplierCandidate:
         code = normalize_lcsc_id(part_number) or part_number.strip()
         if not code:
@@ -329,11 +453,14 @@ class LCSCCatalog(BaseCatalog):
             try:
                 return self._agent_lookup(code)
             except SupplierUnavailableError:
-                pass  # fall back to the public endpoint
-        payload = self._get_json(
-            f"{self.PUBLIC_BASE}/product/detail",
-            {"product_code": code, "currency": "USD"},
-        )
+                pass  # fall back to the public endpoints
+        try:
+            payload = self._get_json(
+                self.DETAIL_API,
+                {"productCode": code, "currency": "USD"},
+            )
+        except SupplierUnavailableError:
+            return self._lookup_page(code)
         if payload.get("code") not in (200, 0, None):
             raise SupplierUnavailableError(
                 f"lcsc: {payload.get('msg') or 'product not found'} ({code})"
@@ -344,15 +471,31 @@ class LCSCCatalog(BaseCatalog):
         candidate = self._candidate(result)
         if not candidate.part_number or candidate.part_number == "None":
             candidate.part_number = code
+        if candidate.msl is None:
+            candidate.msl = self._lookup_msl(code)
         return candidate
+
+    def _lookup_msl(self, code: str) -> str | None:
+        """MSL isn't on the detail response; fall back to the search API."""
+        try:
+            payload = self._post_json(
+                self.SEARCH_API,
+                {"keyword": code, "currentPage": 1, "pageSize": 8},
+            )
+        except SupplierUnavailableError:
+            return None
+        for item in (payload.get("result") or {}).get("dataList") or []:
+            if isinstance(item, dict) and str(item.get("productCode")) == code:
+                return _normalize_msl(item.get("moistureSensitivityLevel"))
+        return None
 
     def search(self, query: str) -> list[SupplierCandidate]:
         keyword = query.strip()
         if not keyword:
             raise SupplierUnavailableError("Empty LCSC search query")
-        payload = self._get_json(
-            f"{self.PUBLIC_BASE}/search/global",
-            {"keyword": keyword, "currPage": 1, "pageSize": 8},
+        payload = self._post_json(
+            self.SEARCH_API,
+            {"keyword": keyword, "currentPage": 1, "pageSize": 8},
         )
         if payload.get("code") not in (200, 0, None):
             raise SupplierUnavailableError(
@@ -362,24 +505,20 @@ class LCSCCatalog(BaseCatalog):
         if not isinstance(result, dict):
             raise SupplierUnavailableError("lcsc: unexpected search response")
 
-        products = []
-        products += self._extract_products(result.get("productSearchResultVO"))
-        products += self._extract_products(result.get("productList"))
-
-        tip = None
-        tip_vo = result.get("tipProductDetailUrlVO") or result.get("tipProductVO")
-        if isinstance(tip_vo, dict):
-            tip = tip_vo.get("productCode") or tip_vo.get("product_code")
+        products = self._extract_products(result.get("dataList"))
 
         candidates = [self._candidate(p) for p in products if isinstance(p, dict)]
         candidates = [c for c in candidates if c.part_number and c.part_number != "None"]
-        if not candidates and tip:
-            candidates.append(self.lookup(tip))
+        if not candidates and (normalize_lcsc_id(keyword) or re.fullmatch(r"\d{4,8}", keyword)):
+            try:
+                candidates.append(self.lookup(keyword))
+            except SupplierUnavailableError:
+                pass
         return candidates
 
     def _extract_products(self, container: Any) -> list[dict[str, Any]]:
         if isinstance(container, dict):
-            for key in ("productList", "products", "list", "items"):
+            for key in ("productList", "products", "list", "items", "dataList"):
                 if isinstance(container.get(key), list):
                     return [p for p in container[key] if isinstance(p, dict)]
         if isinstance(container, list):
@@ -517,6 +656,7 @@ class DigiKeyCatalog(BaseCatalog):
             value=raw.get("value") or _value_from_specs(specs),
             package=raw.get("package") or package,
             category=category,
+            msl=_msl_from_specs(specs),
             datasheet_url=datasheet,
             price=price,
             currency=currency,

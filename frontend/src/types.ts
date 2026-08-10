@@ -45,6 +45,7 @@ export interface Part {
   tolerance: string | null;
   voltage_rating: string | null;
   current_rating: string | null;
+  msl: string | null;
   other_specs: Record<string, unknown>;
   datasheet_url: string | null;
   notes: string | null;
@@ -91,6 +92,7 @@ export interface PartCreate {
   tolerance?: string | null;
   voltage_rating?: string | null;
   current_rating?: string | null;
+  msl?: string | null;
   other_specs?: Record<string, unknown>;
   datasheet_url?: string | null;
   notes?: string | null;
@@ -390,6 +392,7 @@ export interface SupplierCandidate {
   value: string | null;
   package: string | null;
   category: string | null;
+  msl: string | null;
   datasheet_url: string | null;
   price: number | null;
   currency: string | null;

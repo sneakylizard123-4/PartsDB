@@ -67,3 +67,14 @@ export const TOLERANCES = [
   "±20%",
 ];
 
+export const MSL_LEVELS = [
+  "MSL 1",
+  "MSL 2",
+  "MSL 2a",
+  "MSL 3",
+  "MSL 4",
+  "MSL 5",
+  "MSL 5a",
+  "MSL 6",
+];
+
