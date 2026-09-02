@@ -271,6 +271,17 @@ export const api = {
   // backup
   createBackup: () => request<{ filename: string; created_at: string }>("/backup", json("POST")),
   listBackups: () => request<{ filename: string; created_at: string }[]>("/backup"),
+
+  // ai
+  aiChat: (message: string, history?: Array<{ role: string; content: string }>) =>
+    request<{ response: string }>(
+      "/ai/chat",
+      json("POST", { message, history: history ?? [] }),
+    ),
+  aiStatus: () =>
+    request<{ configured: boolean; provider: string | null; model: string | null }>(
+      "/ai/status",
+    ),
 };
 
 interface TokenBody {
@@ -281,4 +292,62 @@ interface TokenBody {
 
 export function downloadUrl(path: string): string {
   return `/api${path}`;
+}
+
+export async function aiChatStream(
+  message: string,
+  history: Array<{ role: string; content: string }> = [],
+  onDelta: (text: string) => void,
+  onToolCall?: (name: string) => void,
+  onToolResult?: (name: string, content: string) => void,
+  onDone?: () => void,
+  onError?: (err: Error) => void,
+) {
+  const token = getToken();
+  try {
+    const resp = await fetch("/api/ai/chat/stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ message, history }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const reader = resp.body?.getReader();
+    if (!reader) throw new Error("No response body");
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt.type === "text") onDelta(evt.content);
+          else if (evt.type === "tool_call") onToolCall?.(evt.name);
+          else if (evt.type === "tool_result") onToolResult?.(evt.name, evt.content);
+          else if (evt.type === "done") onDone?.();
+          else if (evt.type === "error") {
+            onError?.(
+              new Error(
+                evt.message ||
+                  "The AI provider could not complete the request. Check that it is configured and has credits.",
+              ),
+            );
+            return;
+          }
+        } catch {
+          // skip malformed lines
+        }
+      }
+    }
+    onDone?.();
+  } catch (err) {
+    onError?.(err instanceof Error ? err : new Error(String(err)));
+  }
 }

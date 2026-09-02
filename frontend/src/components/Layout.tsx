@@ -18,6 +18,7 @@ const NAV = [
   { to: "/projects", label: "Projects", icon: "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm2-2v10m6-8v6M9 11h2m2-3h2m-4 6h4m-2 2v-1", end: false },
   { to: "/shopping", label: "Shopping List", icon: "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zm0 0h12M3 6h18M16 10a4 4 0 1 1-8 0", end: false },
   { to: "/organizers", label: "Organizers", icon: "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16zM12 22V12m0 0L3.5 7.5M12 12l8.5-4.5", end: false },
+  { to: "/ai", label: "AI Assistant", icon: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 5a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm3 10H9a1 1 0 0 1 0-2h1v-3a1 1 0 0 1 2 0v3h1a1 1 0 0 1 0 2z", end: false },
   { to: "/settings", label: "Settings", icon: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.5 7.5 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.5 7.5 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.5 7.5 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z", end: false },
 ];
 
@@ -54,7 +55,14 @@ export default function Layout() {
           </NavLink>
         ))}
         <div className="section-label">Planning</div>
-        {NAV.slice(5).map((n) => (
+        {NAV.slice(5, -1).map((n) => (
+          <NavLink key={n.to} to={n.to} end={n.end} className="nav-link">
+            <Icon d={n.icon} />
+            {n.label}
+          </NavLink>
+        ))}
+        <div className="section-label">System</div>
+        {NAV.slice(-1).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end} className="nav-link">
             <Icon d={n.icon} />
             {n.label}

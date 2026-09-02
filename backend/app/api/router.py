@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api import (
     account,
+    ai,
     attachments,
     auth,
     backup,
@@ -22,6 +23,7 @@ from app.api import (
 api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(account.router)
+api_router.include_router(ai.router)
 api_router.include_router(parts.router)
 api_router.include_router(locations.router)
 api_router.include_router(inventory.router)

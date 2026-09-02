@@ -17,6 +17,7 @@ import Projects from "./pages/Projects";
 import ProjectDetail from "./pages/ProjectDetail";
 import ShoppingLists from "./pages/ShoppingLists";
 import Organizers from "./pages/Organizers";
+import AI from "./pages/AI";
 import Settings from "./pages/Settings";
 
 function GuardedLayout() {
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/shopping" element={<ShoppingLists />} />
           <Route path="/organizers" element={<Organizers />} />
+          <Route path="/ai" element={<AI />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

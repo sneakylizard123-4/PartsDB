@@ -154,9 +154,31 @@ the rest of the app keeps working.
 
 ## AI (optional)
 
-Set `AI_PROVIDER` to an OpenAI-compatible base URL (e.g. a local Ollama instance) to enable
-natural-language inventory queries and BOM analysis. With `AI_PROVIDER=none` (default) all
-normal functionality works unchanged.
+The **AI Assistant** (`/ai`) provides natural-language inventory queries and BOM analysis. It
+works with any OpenAI-compatible Chat Completions API — local (Ollama) or hosted (OpenRouter,
+OpenAI, Together, etc.). The LLM never accesses the database directly; it calls read-only
+application tools, so it can only see what the app's own APIs expose.
+
+With `AI_PROVIDER=none` (default) all normal functionality works unchanged; `/ai` shows a config
+notice instead.
+
+Set these in `.env`:
+
+| Variable        | Purpose                                            | Example |
+|-----------------|----------------------------------------------------|---------|
+| `AI_PROVIDER`   | `none` for off, or the provider `chat/completions` base URL | `http://host.docker.internal:11434/v1` (Ollama) or `https://openrouter.ai/api/v1` |
+| `AI_API_KEY`    | Provider API key (Ollama may ignore)               | `sk-...` |
+| `AI_MODEL`      | Model name to use                                   | `qwen2.5:7b` or `openai/gpt-4o-mini` |
+
+Example with a local [Ollama](https://ollama.com) instance (free, no key):
+
+```dotenv
+AI_PROVIDER=http://host.docker.internal:11434/v1
+AI_MODEL=qwen2.5:7b
+```
+
+> Note: the backend runs inside Docker, so use `host.docker.internal` to reach a service on your
+> host machine. The AI feature and all prompts are optional — they never block core inventory use.
 
 ---
 

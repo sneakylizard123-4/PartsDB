@@ -174,6 +174,19 @@ export interface Transaction {
   location_path: string;
 }
 
+// ---------- AI ----------
+
+export interface AiMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AiToolEvent {
+  type: "tool_call" | "tool_result";
+  name: string;
+  content?: string;
+}
+
 // ---------- Suppliers ----------
 export interface Supplier {
   id: string;

@@ -20,6 +20,7 @@ dist/
 
 # Data
 data/
+backups/
 
 # Editor / OS
 .idea/

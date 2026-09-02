@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
+    def ai_enabled(self) -> bool:
+        return self.ai_base_url != "" or (self.ai_provider not in ("", "none"))
+
+    @property
+    def ai_resolved_url(self) -> str:
+        """The chat-completions base URL, taken from AI_BASE_URL or AI_PROVIDER."""
+        if self.ai_base_url:
+            return self.ai_base_url.rstrip("/")
+        if self.ai_provider not in ("", "none"):
+            return self.ai_provider.rstrip("/")
+        return ""
+
+    @property
     def attachments_path(self) -> Path:
         return Path(self.attachments_dir)
 

@@ -285,6 +285,40 @@ function Backup() {
   );
 }
 
+function AIConfig() {
+  const { data, loading, error, reload } = useAsync(() => api.aiStatus(), []);
+
+  if (loading) return <Loading />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
+
+  return (
+    <div className="card">
+      <div className="spread">
+        <h2>AI Assistant</h2>
+        <Badge kind={data?.configured ? "ok" : "neutral"}>
+          {data?.configured ? "Configured" : "Not configured"}
+        </Badge>
+      </div>
+      {data?.configured ? (
+        <div className="muted small">
+          Provider: <span className="mono">{data.provider}</span> · Model:{" "}
+          <span className="mono">{data.model}</span>
+        </div>
+      ) : (
+        <div className="muted small">
+          Set <span className="mono">AI_PROVIDER</span> and{" "}
+          <span className="mono">AI_MODEL</span> in <span className="mono">.env</span> to enable
+          natural-language queries on the{" "}
+          <a className="link" href="/ai">
+            AI Assistant
+          </a>{" "}
+          page.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { data: me } = useAsync(() => api.me(), []);
 
@@ -308,6 +342,7 @@ export default function Settings() {
       )}
 
       <div className="stack">
+        <AIConfig />
         <Suppliers />
         <ApiKeys />
         <Backup />
