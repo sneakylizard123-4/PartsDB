@@ -155,6 +155,8 @@ export const api = {
     request<LocationContents>(`/locations/${id}/contents`),
   createLocation: (body: { name: string; parent_id?: string | null; location_type?: string; notes?: string }) =>
     request<Location>("/locations", json("POST", body)),
+  createDrawerGrid: (body: { name: string; parent_id?: string | null; rows: number; cols: number; notes?: string }) =>
+    request<Location[]>("/locations/grid", json("POST", body)),
   deleteLocation: (id: string) => request<void>(`/locations/${id}`, json("DELETE")),
 
   // search

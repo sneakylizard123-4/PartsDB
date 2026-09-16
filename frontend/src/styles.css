@@ -933,3 +933,30 @@ body {
   min-height: 38px;
   max-height: 120px;
 }
+
+/* ── Drawer grid preview ─────────────────────────────── */
+.cell-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  margin-bottom: 4px;
+}
+.cell-preview-row {
+  display: flex;
+  gap: 2px;
+}
+.cell-preview-cell {
+  flex: 1;
+  min-width: 24px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-2);
+}

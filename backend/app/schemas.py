@@ -173,6 +173,16 @@ class LocationUpdate(BaseModel):
     notes: str | None = None
 
 
+class DrawerGridCreate(BaseModel):
+    """Create a drawer location and a grid of compartment children in one call."""
+
+    name: str
+    parent_id: str | None = None
+    rows: int = Field(ge=1, le=26)
+    cols: int = Field(ge=1, le=30)
+    notes: str | None = None
+
+
 class LocationOut(ORMModel):
     id: str
     name: str

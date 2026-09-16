@@ -59,7 +59,11 @@ function TreeNode({
 export default function Locations() {
   const toast = useToast();
   const [showCreate, setShowCreate] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
   const [parentId, setParentId] = useState<string | null>(null);
+  const [gridParentId, setGridParentId] = useState<string>("");
+  const [gridRows, setGridRows] = useState(2);
+  const [gridCols, setGridCols] = useState(4);
   const [expandAll, setExpandAll] = useState(false);
   const { data: tree, loading, error, reload } = useAsync(() => api.locationTree(), []);
   const { data: all } = useAsync(() => api.listLocations(), []);
@@ -83,6 +87,27 @@ export default function Locations() {
     }
   };
 
+  const createGrid = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const body = {
+      name: String(fd.get("name")),
+      parent_id: gridParentId || null,
+      rows: Number(fd.get("rows")) || 1,
+      cols: Number(fd.get("cols")) || 1,
+      notes: String(fd.get("notes") || "") || undefined,
+    };
+    try {
+      const cells = await api.createDrawerGrid(body);
+      toast(`Created drawer with ${cells.length} compartments`);
+      setShowGrid(false);
+      setGridParentId("");
+      reload();
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    }
+  };
+
   if (loading) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
 
@@ -98,6 +123,9 @@ export default function Locations() {
         <div className="actions">
           <button className="btn ghost" onClick={() => setExpandAll((v) => !v)}>
             {expandAll ? "Collapse all" : "Expand all"}
+          </button>
+          <button className="btn" onClick={() => setShowGrid(true)}>
+            + Drawer grid
           </button>
           <button className="btn" onClick={() => { setParentId(null); setShowCreate(true); }}>
             + New top-level location
@@ -184,6 +212,88 @@ export default function Locations() {
               </button>
               <button className="btn" type="submit">
                 Create
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {showGrid && (
+        <Modal
+          title="Create drawer grid"
+          onClose={() => setShowGrid(false)}
+        >
+          <p className="muted small">
+            Bulk-create a drawer and a rows×cols grid of compartments (A1, A2, …) in one step.
+          </p>
+          <form onSubmit={createGrid}>
+            <div className="field">
+              <label>Drawer name</label>
+              <input name="name" required autoFocus placeholder="BOM trace drawer 1" />
+            </div>
+            <div className="field">
+              <label>Parent (optional)</label>
+              <select
+                value={gridParentId}
+                onChange={(e) => setGridParentId(e.target.value)}
+              >
+                <option value="">— top level —</option>
+                {(all ?? []).map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.full_path}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid cols-2">
+              <div className="field">
+                <label>Rows</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={26}
+                  value={gridRows}
+                  onChange={(e) => setGridRows(Math.max(1, Number(e.target.value)))}
+                  name="rows"
+                />
+              </div>
+              <div className="field">
+                <label>Columns</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={gridCols}
+                  onChange={(e) => setGridCols(Math.max(1, Number(e.target.value)))}
+                  name="cols"
+                />
+              </div>
+            </div>
+            <div className="field">
+              <label>Notes</label>
+              <input name="notes" />
+            </div>
+            <div className="mb small muted">
+              {gridRows}×{gridCols} = {gridRows * gridCols} compartments:
+            </div>
+            <div className="cell-preview">
+              {Array.from({ length: gridRows }).map((_, r) => (
+                <div key={r} className="cell-preview-row">
+                  {Array.from({ length: gridCols }).map((_, c) => (
+                    <span key={c} className="cell-preview-cell mono">
+                      {String.fromCharCode(65 + r)}
+                      {c + 1}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn ghost" type="button" onClick={() => setShowGrid(false)}>
+                Cancel
+              </button>
+              <button className="btn" type="submit">
+                Create {gridRows * gridCols} compartments
               </button>
             </div>
           </form>

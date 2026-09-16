@@ -12,7 +12,7 @@ from app.models.location import InventoryLocation
 from app.models.organizer import OrganizerCompartment
 from app.models.base import new_id
 from app.models.user import User
-from app.schemas import LocationCreate, LocationOut, LocationUpdate
+from app.schemas import DrawerGridCreate, LocationCreate, LocationOut, LocationUpdate
 
 router = APIRouter(prefix="/api/locations", tags=["locations"])
 
@@ -88,6 +88,53 @@ def create_location(
     db.commit()
     db.refresh(loc)
     return _to_out(db, loc)
+
+
+def _cell_name(row: int, col: int) -> str:
+    """Grid cell name: rows lettered A..Z, columns numbered 1..N.
+
+    Example for a 4x4 grid: A1 A2 A3 A4, B1 ... D4.
+    """
+    return f"{chr(ord('A') + row)}{col + 1}"
+
+
+@router.post("/grid", response_model=list[LocationOut], status_code=201)
+def create_drawer_grid(
+    body: DrawerGridCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create a drawer location plus a rows×cols grid of compartment children."""
+    if body.parent_id and db.get(InventoryLocation, body.parent_id) is None:
+        raise HTTPException(status_code=404, detail="Parent location not found")
+
+    drawer = InventoryLocation(
+        name=body.name,
+        parent_id=body.parent_id,
+        location_type="drawer",
+        dimensions={"rows": body.rows, "cols": body.cols, "cells": body.rows * body.cols},
+        notes=body.notes,
+    )
+    drawer.id = new_id()
+    drawer.qr_code = f"/locations/{drawer.id}"
+    db.add(drawer)
+
+    cells = []
+    for row in range(body.rows):
+        for col in range(body.cols):
+            cell = InventoryLocation(
+                name=_cell_name(row, col),
+                parent_id=drawer.id,
+                location_type="compartment",
+                dimensions={"row": row, "col": col},
+            )
+            cell.id = new_id()
+            cell.qr_code = f"/locations/{cell.id}"
+            db.add(cell)
+            cells.append(cell)
+
+    db.commit()
+    return [_to_out(db, c) for c in cells]
 
 
 @router.get("/{location_id}", response_model=LocationOut)
