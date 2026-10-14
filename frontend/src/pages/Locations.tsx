@@ -9,15 +9,18 @@ import {
   useAsync,
   useToast,
 } from "../components/ui";
+import { MoveLocationModal } from "../components/MoveLocation";
 import type { LocationTreeNode } from "../types";
 
 function TreeNode({
   node,
   onAdd,
+  onMove,
   expandAll,
 }: {
   node: LocationTreeNode;
   onAdd: (parentId: string) => void;
+  onMove: (node: LocationTreeNode) => void;
   expandAll: boolean;
 }) {
   const [open, setOpen] = useState(expandAll);
@@ -41,6 +44,9 @@ function TreeNode({
         </Link>
         {isCompartment && <span className="badge neutral">compartment</span>}
         <span style={{ flex: 1 }} />
+        <button className="btn sm ghost" onClick={() => onMove(node)}>
+          move
+        </button>
         <button className="btn sm ghost" onClick={() => onAdd(node.id)}>
           + child
         </button>
@@ -48,7 +54,7 @@ function TreeNode({
       {hasChildren && open && (
         <ul>
           {node.children.map((c) => (
-            <TreeNode key={c.id} node={c} onAdd={onAdd} expandAll={expandAll} />
+            <TreeNode key={c.id} node={c} onAdd={onAdd} onMove={onMove} expandAll={expandAll} />
           ))}
         </ul>
       )}
@@ -65,6 +71,7 @@ export default function Locations() {
   const [gridRows, setGridRows] = useState(2);
   const [gridCols, setGridCols] = useState(4);
   const [expandAll, setExpandAll] = useState(false);
+  const [moving, setMoving] = useState<LocationTreeNode | null>(null);
   const { data: tree, loading, error, reload } = useAsync(() => api.locationTree(), []);
   const { data: all } = useAsync(() => api.listLocations(), []);
 
@@ -140,7 +147,7 @@ export default function Locations() {
             {(tree ?? []).length === 0 && <div className="muted">No locations yet.</div>}
             <ul>
               {tree?.map((n) => (
-                <TreeNode key={n.id} node={n} onAdd={(pid) => { setParentId(pid); setShowCreate(true); }} expandAll={expandAll} />
+                <TreeNode key={n.id} node={n} onAdd={(pid) => { setParentId(pid); setShowCreate(true); }} onMove={setMoving} expandAll={expandAll} />
               ))}
             </ul>
           </div>
@@ -298,6 +305,15 @@ export default function Locations() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {moving && (
+        <MoveLocationModal
+          locationId={moving.id}
+          locationLabel={moving.name}
+          onClose={() => setMoving(null)}
+          onMoved={reload}
+        />
       )}
     </div>
   );

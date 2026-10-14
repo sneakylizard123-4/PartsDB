@@ -3,7 +3,11 @@ import type {
   ApiKeyResponse,
   Attachment,
   BOM,
+  BOMItem,
+  BOMRevision,
   BomItemMatch,
+  BomRevisionDiff,
+  BomReviewResponse,
   CsvPreview,
   DashboardStats,
   InventoryItem,
@@ -16,6 +20,7 @@ import type {
   Page,
   Part,
   PartCreate,
+  PartSize,
   Project,
   ProjectRequirements,
   Reservation,
@@ -23,6 +28,7 @@ import type {
   ShoppingList,
   Supplier,
   SupplierCandidate,
+  SupplierCompare,
   Transaction,
   UserResponse,
 } from "./types";
@@ -158,6 +164,19 @@ export const api = {
   createDrawerGrid: (body: { name: string; parent_id?: string | null; rows: number; cols: number; notes?: string }) =>
     request<Location[]>("/locations/grid", json("POST", body)),
   deleteLocation: (id: string) => request<void>(`/locations/${id}`, json("DELETE")),
+  moveLocation: (locationId: string, newParentId: string) =>
+    request<Location>(
+      `/locations/${locationId}/move`,
+      json("POST", { new_parent_id: newParentId })
+    ),
+  reportDiscrepancy: (
+    locationId: string,
+    body: { part_id: string; actual_quantity: number }
+  ) =>
+    request<Transaction>(
+      `/locations/${locationId}/report-discrepancy`,
+      json("POST", body)
+    ),
 
   // search
   search: (q: string) => request<SearchResult[]>(`/search?q=${encodeURIComponent(q)}`),
@@ -188,6 +207,26 @@ export const api = {
     request<BomItemMatch[]>(`/boms/${bomId}/match`, json("POST")),
   matchBomItem: (bomId: string, itemId: string, body: { part_id: string; match_level: string; reason: string }) =>
     request<unknown>(`/boms/${bomId}/items/${itemId}/match`, json("POST", body)),
+  listBomReviews: (bomId?: string) =>
+    request<BomReviewResponse>(
+      bomId ? `/boms/${bomId}/reviews` : "/boms/reviews"
+    ),
+  approveBomMatch: (bomId: string, itemId: string, partId: string) =>
+    request<BOMItem>(
+      `/boms/${bomId}/items/${itemId}/match/approve`,
+      json("POST", { part_id: partId })
+    ),
+  rejectBomMatch: (bomId: string, itemId: string) =>
+    request<BOMItem>(
+      `/boms/${bomId}/items/${itemId}/match/reject`,
+      json("POST")
+    ),
+  listBomRevisions: (bomId: string) =>
+    request<BOMRevision[]>(`/boms/${bomId}/revisions`),
+  bomRevisionDiff: (bomId: string, fromId: string, toId: string) =>
+    request<BomRevisionDiff>(
+      `/boms/${bomId}/revisions/diff?from_id=${encodeURIComponent(fromId)}&to_id=${encodeURIComponent(toId)}`
+    ),
   previewCsv: (file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -237,6 +276,8 @@ export const api = {
     quantity?: number;
     location_id?: string;
   }) => request<Part>("/suppliers/import", json("POST", body)),
+  supplierCompare: (q: string) =>
+    request<SupplierCompare>(`/suppliers/compare?q=${encodeURIComponent(q)}`),
 
   // organizers
   organizerPresets: () => request<Record<string, OrganizerPreset>>("/organizers/presets"),
@@ -244,9 +285,19 @@ export const api = {
   getOrganizer: (id: string) => request<Organizer>(`/organizers/${id}`),
   createOrganizer: (body: Record<string, unknown>) =>
     request<Organizer>("/organizers", json("POST", body)),
+  organizerSize: (partIds: string[]) =>
+    request<PartSize[]>("/organizers/size", json("POST", { part_ids: partIds })),
+  autoAssignOrganizer: (organizerId: string) =>
+    request<Organizer>("/organizers/auto-assign", json("POST", { organizer_id: organizerId })),
   assignOrganizer: (id: string, assignments: { compartment_id: string; part_id?: string; label?: string }[]) =>
     request<Organizer>(`/organizers/${id}/assign`, json("POST", assignments)),
   deleteOrganizer: (id: string) => request<void>(`/organizers/${id}`, json("DELETE")),
+  organizerLabelSheetUrl: (organizerId: string) =>
+    `/api/labels/organizer/${organizerId}/print-sheet`,
+  compartmentQrUrl: (compartmentId: string) =>
+    `/api/labels/compartment/${compartmentId}/qr.png`,
+  organizerQrUrl: (organizerId: string) =>
+    `/api/labels/organizer/${organizerId}/qr.png`,
 
   // attachments
   listAttachments: (entityType?: string, entityId?: string) => {
@@ -294,6 +345,17 @@ interface TokenBody {
 
 export function downloadUrl(path: string): string {
   return `/api${path}`;
+}
+
+export async function openAuthenticatedUrl(path: string) {
+  const token = getToken();
+  const res = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new ApiError(res.status, "Request failed");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener");
 }
 
 export async function aiChatStream(

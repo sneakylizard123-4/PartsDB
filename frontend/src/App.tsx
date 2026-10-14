@@ -13,6 +13,7 @@ import Inventory from "./pages/Inventory";
 import Transactions from "./pages/Transactions";
 import Locations from "./pages/Locations";
 import LocationDetail from "./pages/LocationDetail";
+import Scan from "./pages/Scan";
 import Projects from "./pages/Projects";
 import ProjectDetail from "./pages/ProjectDetail";
 import ShoppingLists from "./pages/ShoppingLists";
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/locations" element={<Locations />} />
           <Route path="/locations/:id" element={<LocationDetail />} />
+          <Route path="/scan" element={<Scan />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/shopping" element={<ShoppingLists />} />

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "../api";
+import { api, openAuthenticatedUrl } from "../api";
 import {
   Badge,
   ErrorBox,
@@ -79,6 +79,24 @@ export default function Organizers() {
     }
   };
 
+  const printLabels = async (o: Organizer) => {
+    try {
+      await openAuthenticatedUrl(api.organizerLabelSheetUrl(o.id));
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    }
+  };
+
+  const autoAssign = async (o: Organizer) => {
+    try {
+      const updated = await api.autoAssignOrganizer(o.id);
+      toast(updated.note || "Auto-assign complete");
+      reload();
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    }
+  };
+
   if (loading) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
 
@@ -120,6 +138,12 @@ export default function Organizers() {
               </a>
               <button className="btn sm ghost" onClick={() => setEditing(o)}>
                 Assign
+              </button>
+              <button className="btn sm ghost" onClick={() => autoAssign(o)}>
+                Auto-assign
+              </button>
+              <button className="btn sm ghost" onClick={() => printLabels(o)}>
+                Print labels
               </button>
               <button className="btn sm ghost danger" onClick={() => remove(o)}>
                 Delete
@@ -180,6 +204,17 @@ export default function Organizers() {
                 <div key={c.id} className="field" style={{ marginBottom: 8 }}>
                   <label className="mono small">
                     {c.label || `R${c.row}C${c.col}`}
+                    <a
+                      className="link small"
+                      style={{ marginLeft: 6 }}
+                      href={api.compartmentQrUrl(c.id)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openAuthenticatedUrl(api.compartmentQrUrl(c.id));
+                      }}
+                    >
+                      QR
+                    </a>
                   </label>
                   <input
                     name={`part_${c.id}`}

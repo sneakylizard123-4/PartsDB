@@ -10,9 +10,19 @@ from app.deps import get_current_user
 from app.models.inventory import InventoryItem
 from app.models.location import InventoryLocation
 from app.models.organizer import OrganizerCompartment
+from app.models.part import Part
 from app.models.base import new_id
 from app.models.user import User
-from app.schemas import DrawerGridCreate, LocationCreate, LocationOut, LocationUpdate
+from app.schemas import (
+    DrawerGridCreate,
+    LocationCreate,
+    LocationDiscrepancyReport,
+    LocationMove,
+    LocationOut,
+    LocationUpdate,
+    TransactionOut,
+)
+from app.services.inventory import StockError, apply_transaction
 
 router = APIRouter(prefix="/api/locations", tags=["locations"])
 
@@ -135,6 +145,99 @@ def create_drawer_grid(
 
     db.commit()
     return [_to_out(db, c) for c in cells]
+
+
+@router.get("/by-qr/{qr_code:path}", response_model=LocationOut)
+def get_location_by_qr(
+    qr_code: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Resolve a location from the raw QR text, e.g. "/locations/abc123"."""
+    loc = (
+        db.query(InventoryLocation)
+        .filter(InventoryLocation.qr_code == qr_code)
+        .first()
+    )
+    if loc is None and qr_code.startswith("/locations/"):
+        loc = db.get(InventoryLocation, qr_code[len("/locations/") :])
+    if loc is None:
+        raise HTTPException(status_code=404, detail="No location matches this QR code")
+    return _to_out(db, loc)
+
+
+@router.post("/{location_id}/move", response_model=LocationOut)
+def move_location(
+    location_id: str,
+    body: LocationMove,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Reparent a location; its whole subtree and all inventory moves with it."""
+    loc = db.get(InventoryLocation, location_id)
+    if loc is None:
+        raise HTTPException(status_code=404, detail="Location not found")
+    target = db.get(InventoryLocation, body.new_parent_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Target parent location not found")
+    if body.new_parent_id == location_id:
+        raise HTTPException(status_code=400, detail="Cannot move a location into itself")
+    node = target
+    seen: set[str] = set()
+    while node is not None and node.id not in seen:
+        if node.id == location_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot move a location into its own subtree",
+            )
+        seen.add(node.id)
+        node = node.parent
+    loc.parent_id = body.new_parent_id
+    db.commit()
+    db.refresh(loc)
+    return _to_out(db, loc)
+
+
+@router.post("/{location_id}/report-discrepancy", response_model=TransactionOut)
+def report_discrepancy(
+    location_id: str,
+    body: LocationDiscrepancyReport,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Correct recorded stock to the counted quantity via a scan discrepancy report."""
+    if db.get(InventoryLocation, location_id) is None:
+        raise HTTPException(status_code=404, detail="Location not found")
+    if db.get(Part, body.part_id) is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+    item = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.part_id == body.part_id,
+            InventoryItem.location_id == location_id,
+        )
+        .first()
+    )
+    current = item.quantity if item else 0
+    delta = body.actual_quantity - current
+    try:
+        tx = apply_transaction(
+            db,
+            part_id=body.part_id,
+            location_id=location_id,
+            quantity_change=delta,
+            reason="discrepancy",
+            source="scan",
+            notes=f"QR discrepancy report: recorded {current}, counted {body.actual_quantity}",
+        )
+    except StockError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    out = TransactionOut.model_validate(tx)
+    out.part_value = tx.part.value if tx.part else None
+    out.part_internal_id = tx.part.internal_id if tx.part else None
+    out.location_path = tx.location.full_path() if tx.location else ""
+    return out
 
 
 @router.get("/{location_id}", response_model=LocationOut)

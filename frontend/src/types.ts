@@ -284,6 +284,82 @@ export interface NormalizedBomItem {
   description: string | null;
 }
 
+export interface BomMatchCandidate {
+  part_id: string;
+  internal_id: string | null;
+  value: string | null;
+  package: string | null;
+  manufacturer: string | null;
+  mpn: string | null;
+  match_level: string;
+  reason: string;
+  available_quantity: number | null;
+}
+
+export interface BomReviewItem {
+  bom_id: string;
+  bom_name: string;
+  item_id: string;
+  designator: string;
+  qty: number;
+  value: string | null;
+  footprint: string | null;
+  mpn: string | null;
+  manufacturer: string | null;
+  match_level: string | null;
+  candidates: BomMatchCandidate[];
+}
+
+export interface BomReviewResponse {
+  total: number;
+  items: BomReviewItem[];
+}
+
+export interface BOMSnapshotItem {
+  designator: string;
+  qty: number;
+  value: string | null;
+  footprint: string | null;
+  mpn: string | null;
+  manufacturer: string | null;
+}
+
+export interface BomRevisionDiffItem {
+  designator: string;
+  status: "added" | "removed" | "changed" | "unchanged";
+  from_item: BOMSnapshotItem | null;
+  to_item: BOMSnapshotItem | null;
+  qty_change: number;
+  part: {
+    id: string;
+    internal_id: string | null;
+    value: string | null;
+    package: string | null;
+    manufacturer: string | null;
+    mpn: string | null;
+  } | null;
+  needed: number;
+  available: number | null;
+  shortfall: number;
+}
+
+export interface BomRevisionDiff {
+  bom_id: string;
+  bom_name: string;
+  project_id: string;
+  build_qty: number;
+  from_revision: BOMRevision | null;
+  to_revision: BOMRevision | null;
+  items: BomRevisionDiffItem[];
+  summary: {
+    added: number;
+    removed: number;
+    changed: number;
+    unchanged: number;
+    total_shortfall: number;
+  };
+}
+
 // ---------- Reservations ----------
 export interface Reservation {
   id: string;
@@ -294,9 +370,17 @@ export interface Reservation {
   project_name: string | null;
   part_value: string | null;
   part_internal_id: string | null;
+  created_at: string;
 }
 
 // ---------- Shopping lists ----------
+export interface ShoppingListSummary {
+  available: number;
+  reserved: number;
+  missing: number;
+  purchase: number;
+}
+
 export interface ShoppingListItem {
   id: string;
   part_id: string | null;
@@ -307,6 +391,10 @@ export interface ShoppingListItem {
   notes: string | null;
   part_value: string | null;
   part_internal_id: string | null;
+  available_quantity: number;
+  reserved_quantity: number;
+  missing_quantity: number;
+  purchase_quantity: number;
 }
 
 export interface ShoppingList {
@@ -315,6 +403,7 @@ export interface ShoppingList {
   status: string;
   created_at: string;
   items: ShoppingListItem[];
+  summary: ShoppingListSummary;
 }
 
 // ---------- Organizers ----------
@@ -348,6 +437,16 @@ export interface Organizer {
   stl_path: string | null;
   compartments: Compartment[];
   created_at: string;
+  note?: string | null;
+}
+
+export interface PartSize {
+  part_id: string;
+  width: number;
+  depth: number;
+  height: number;
+  package: string | null;
+  value: string | null;
 }
 
 export interface OrganizerPreset {
@@ -361,15 +460,42 @@ export interface OrganizerPreset {
 }
 
 // ---------- Dashboard ----------
+export interface MissingBomItem {
+  item_id: string;
+  bom_id: string;
+  bom_name: string;
+  project_id: string;
+  project_name: string;
+  designator: string;
+  qty: number;
+  needed: number;
+  available: number;
+  shortfall: number;
+  value: string | null;
+  footprint: string | null;
+  mpn: string | null;
+  manufacturer: string | null;
+  matched_part_id: string | null;
+}
+
+export interface EmptyStorageLocation {
+  id: string;
+  name: string;
+  full_path: string;
+}
+
 export interface DashboardStats {
   total_parts: number;
   low_stock_parts: number;
   missing_bom_components: number;
+  missing_bom_items: MissingBomItem[];
   active_projects: number;
   shopping_requirements: number;
   recent_transactions: Transaction[];
   unassigned_parts: number;
   empty_storage: number;
+  empty_storage_count: number;
+  empty_storage_locations: EmptyStorageLocation[];
   recent_reservations: Reservation[];
   total_quantity: number;
 }
@@ -412,4 +538,34 @@ export interface SupplierCandidate {
   stock: number | null;
   url: string | null;
   specs: Record<string, string>;
+}
+
+export interface SupplierOffer {
+  source: string;
+  supplier: string;
+  part_label: string;
+  part_number: string | null;
+  mpn: string | null;
+  manufacturer: string | null;
+  description: string | null;
+  value: string | null;
+  package: string | null;
+  price: number | null;
+  currency: string | null;
+  stock: number | null;
+  url: string | null;
+  in_stock: boolean;
+}
+
+export interface SupplierRecommendation {
+  source: string;
+  part_label: string;
+  reason: string;
+}
+
+export interface SupplierCompare {
+  query: string;
+  offers: SupplierOffer[];
+  recommendation: SupplierRecommendation | null;
+  warnings: string[];
 }

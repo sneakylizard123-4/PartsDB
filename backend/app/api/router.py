@@ -9,6 +9,7 @@ from app.api import (
     boms,
     dashboard,
     inventory,
+    labels,
     locations,
     organizers,
     parts,
@@ -36,5 +37,6 @@ api_router.include_router(reservations.router)
 api_router.include_router(shopping_lists.router)
 api_router.include_router(suppliers.router)
 api_router.include_router(organizers.router)
+api_router.include_router(labels.router)
 api_router.include_router(attachments.router)
 api_router.include_router(backup.router)

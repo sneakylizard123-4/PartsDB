@@ -6,12 +6,20 @@ import {
   ErrorBox,
   Loading,
   Modal,
+  Quantity,
   errorMessage,
   matchLevelBadge,
   useAsync,
   useToast,
 } from "../components/ui";
-import type { CsvPreview, NormalizedBomItem } from "../types";
+import type {
+  BOM,
+  BOMRevision,
+  BomRevisionDiff,
+  BomRevisionDiffItem,
+  CsvPreview,
+  NormalizedBomItem,
+} from "../types";
 
 const MAPPABLE = [
   ["designator", "Designator"],
@@ -125,6 +133,270 @@ function CsvImport({ bomId, onDone }: { bomId: string; onDone: () => void }) {
   );
 }
 
+function ReviewMatches({
+  bomIds,
+  onChanged,
+}: {
+  bomIds: Set<string>;
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+  const { data, loading, error, reload } = useAsync(() => api.listBomReviews(), []);
+  const [busy, setBusy] = useState(false);
+
+  if (loading) return <Loading />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
+
+  const items = (data?.items ?? []).filter((i) => bomIds.has(i.bom_id));
+
+  const action = async (fn: () => Promise<unknown>, message: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fn();
+      toast(message);
+      reload();
+      onChanged();
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      {items.length === 0 && (
+        <div className="muted">No compatible matches waiting for review.</div>
+      )}
+      {items.length > 0 && (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>BOM</th>
+              <th>Ref</th>
+              <th className="num">Qty</th>
+              <th>Value</th>
+              <th>Candidates</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.item_id}>
+                <td className="small muted">{item.bom_name}</td>
+                <td className="mono">{item.designator}</td>
+                <td className="num">{item.qty}</td>
+                <td>
+                  {item.value || "—"}
+                  <div className="small muted">
+                    {item.footprint || ""}
+                    {item.footprint && item.mpn ? " · " : ""}
+                    {item.mpn || ""}
+                  </div>
+                </td>
+                <td>
+                  {item.candidates.length === 0 && (
+                    <span className="muted small">No candidates</span>
+                  )}
+                  {item.candidates.map((c) => (
+                    <div key={c.part_id} className="mb">
+                      <div className="row" style={{ alignItems: "center" }}>
+                        <Link className="link mono" to={`/parts/${c.part_id}`}>
+                          {c.internal_id || c.value || c.mpn}
+                        </Link>
+                        <Badge kind="info">{c.package || "—"}</Badge>
+                        {c.mpn && <span className="mono small muted">{c.mpn}</span>}
+                        <button
+                          className="btn sm"
+                          disabled={busy}
+                          onClick={() =>
+                            action(
+                              () =>
+                                api.approveBomMatch(
+                                  item.bom_id,
+                                  item.item_id,
+                                  c.part_id
+                                ),
+                              "Substitution approved"
+                            )
+                          }
+                        >
+                          Accept
+                        </button>
+                      </div>
+                      <div className="small muted">
+                        {c.reason} · stock {c.available_quantity ?? "?"}
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    className="btn sm ghost danger"
+                    disabled={busy}
+                    onClick={() =>
+                      action(
+                        () => api.rejectBomMatch(item.bom_id, item.item_id),
+                        "Rejected — needs manual part selection"
+                      )
+                    }
+                  >
+                    Reject
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function statusBadge(item: BomRevisionDiffItem) {
+  switch (item.status) {
+    case "added":
+      return <Badge kind="ok">+</Badge>;
+    case "removed":
+      return <Badge kind="danger">−</Badge>;
+    case "changed":
+      return <Badge kind="warn">~</Badge>;
+    default:
+      return <Badge kind="neutral">·</Badge>;
+  }
+}
+
+function RevisionDiff({ bom }: { bom: BOM }) {
+  const {
+    data: revisions,
+    loading: revLoading,
+    error: revError,
+    reload: reloadRevs,
+  } = useAsync(() => api.listBomRevisions(bom.id), [bom.id]);
+  const sorted = [...(revisions ?? [])].sort((a, b) => a.version - b.version);
+  const [fromId, setFromId] = useState("");
+  const [toId, setToId] = useState("");
+
+  const from = fromId || sorted[0]?.id || "";
+  const to = toId || sorted[sorted.length - 1]?.id || "";
+
+  const { data, loading, error, reload } = useAsync<BomRevisionDiff | null>(
+    async () =>
+      from && to && from !== to
+        ? api.bomRevisionDiff(bom.id, from, to)
+        : null,
+    [from, to, bom.id]
+  );
+
+  if (revLoading) return <Loading />;
+  if (revError) return <ErrorBox message={revError} onRetry={reloadRevs} />;
+
+  const revOption = (r: BOMRevision) => (
+    <option key={r.id} value={r.id}>
+      {r.version}.{r.comment ? ` ${r.comment}` : ""}
+    </option>
+  );
+
+  return (
+    <div>
+      <div className="row mb">
+        <div className="field">
+          <label>From</label>
+          <select value={from} onChange={(e) => setFromId(e.target.value)}>
+            {sorted.map(revOption)}
+          </select>
+        </div>
+        <div className="field">
+          <label>To</label>
+          <select value={to} onChange={(e) => setToId(e.target.value)}>
+            {sorted.map(revOption)}
+          </select>
+        </div>
+      </div>
+
+      {loading && <Loading />}
+      {error && <ErrorBox message={error} onRetry={reload} />}
+      {!loading && !error && !data && (
+        <div className="muted small">Pick two different revisions to compare.</div>
+      )}
+      {data && (
+        <div>
+          <div className="row mb">
+            {data.items.length > 0 ? (
+              <>
+                <Badge kind="ok">+{data.summary.added} added</Badge>
+                <Badge kind="danger">−{data.summary.removed} removed</Badge>
+                <Badge kind="warn">~{data.summary.changed} changed</Badge>
+                <Badge kind="neutral">{data.summary.unchanged} unchanged</Badge>
+                {data.summary.total_shortfall > 0 && (
+                  <Badge kind="danger">
+                    short {data.summary.total_shortfall}
+                  </Badge>
+                )}
+              </>
+            ) : (
+              <span className="muted small">
+                {data.bom_name} has no items in these revisions.
+              </span>
+            )}
+          </div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th />
+                <th>Ref</th>
+                <th className="num">Qty</th>
+                <th>Part</th>
+                <th className="num">Needed (×{data.build_qty})</th>
+                <th className="num">Available</th>
+                <th className="num">Impact</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((item) => (
+                <tr key={item.designator}>
+                  <td>{statusBadge(item)}</td>
+                  <td className="mono">{item.designator}</td>
+                  <td className="num">
+                    {item.from_item && item.to_item
+                      ? `${item.from_item.qty} → ${item.to_item.qty}`
+                      : item.status === "removed"
+                        ? `−${item.from_item?.qty}`
+                        : item.status === "added"
+                          ? `+${item.to_item?.qty}`
+                          : "—"}
+                    {item.qty_change !== 0 && (
+                      <Quantity value={item.qty_change} change={item.qty_change} />
+                    )}
+                  </td>
+                  <td>
+                    {item.part ? (
+                      <Link className="link mono" to={`/parts/${item.part.id}`}>
+                        {item.part.internal_id || item.part.value}
+                      </Link>
+                    ) : (
+                      <span className="muted">unmatched</span>
+                    )}
+                  </td>
+                  <td className="num">{item.needed || "—"}</td>
+                  <td className="num">{item.available ?? "—"}</td>
+                  <td className="num">
+                    {item.shortfall > 0 ? (
+                      <Badge kind="danger">−{item.shortfall}</Badge>
+                    ) : item.status === "removed" ? (
+                      <Badge kind="info">frees stock</Badge>
+                    ) : (
+                      <Badge kind="ok">ok</Badge>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
@@ -134,6 +406,8 @@ export default function ProjectDetail() {
   const [showBom, setShowBom] = useState(false);
   const [showReserve, setShowReserve] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [showReview, setShowReview] = useState(false);
+  const [diffBomId, setDiffBomId] = useState<string | null>(null);
 
   const { data: project, loading, error, reload } = useAsync(
     () => api.getProject(id!),
@@ -157,6 +431,9 @@ export default function ProjectDetail() {
 
   const projectBoms = (boms ?? []).filter((b) => b.project_id === project.id);
   const projectReservations = (reservations ?? []).filter((r) => r.project_id === project.id);
+  const projectBomIds = new Set(projectBoms.map((b) => b.id));
+  const diffBom =
+    diffBomId !== null ? (boms ?? []).find((b) => b.id === diffBomId) ?? null : null;
 
   const createBom = async () => {
     try {
@@ -368,9 +645,14 @@ export default function ProjectDetail() {
       <div className="card mt">
         <div className="spread">
           <h2>BOMs</h2>
-          <button className="btn sm ghost" onClick={() => { setShowBom(true); }}>
-            Browse BOMs
-          </button>
+          <div className="row">
+            <button className="btn sm ghost" onClick={() => setShowReview(true)}>
+              Review matches
+            </button>
+            <button className="btn sm ghost" onClick={() => { setShowBom(true); }}>
+              Browse BOMs
+            </button>
+          </div>
         </div>
         {projectBoms.length === 0 && <div className="muted">No BOMs yet.</div>}
         {projectBoms.map((bom) => (
@@ -381,6 +663,9 @@ export default function ProjectDetail() {
                 <span className="muted small">{bom.items.length} items</span>
                 <button className="btn sm ghost" onClick={() => match(bom.id)}>
                   Match
+                </button>
+                <button className="btn sm ghost" onClick={() => { setDiffBomId(bom.id); }}>
+                  Revisions
                 </button>
                 <button className="btn sm ghost" onClick={() => { setImportBomId(bom.id); setShowImport(true); }}>
                   Add items
@@ -538,6 +823,28 @@ export default function ProjectDetail() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {showReview && (
+        <Modal title="Review BOM matches" onClose={() => setShowReview(false)} wide>
+          <ReviewMatches
+            bomIds={projectBomIds}
+            onChanged={() => {
+              reload();
+              reloadReq();
+            }}
+          />
+        </Modal>
+      )}
+
+      {diffBom && (
+        <Modal
+          title={`Revisions — ${diffBom.name}`}
+          onClose={() => setDiffBomId(null)}
+          wide
+        >
+          <RevisionDiff bom={diffBom} />
         </Modal>
       )}
     </div>

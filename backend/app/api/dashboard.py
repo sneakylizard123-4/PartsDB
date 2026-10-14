@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models.bom import BOMItem
+from app.models.bom import BOM, BOMItem
 from app.models.inventory import InventoryItem
 from app.models.location import InventoryLocation
 from app.models.part import Part
@@ -13,7 +13,13 @@ from app.models.reservation import Reservation
 from app.models.shopping import ShoppingList, ShoppingListItem
 from app.models.transaction import InventoryTransaction
 from app.models.user import User
-from app.schemas import DashboardStats, ReservationOut, TransactionOut
+from app.schemas import (
+    DashboardStats,
+    EmptyStorageLocationOut,
+    MissingBomItemOut,
+    ReservationOut,
+    TransactionOut,
+)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -37,6 +43,40 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
         .filter(BOMItem.matched_part_id.is_(None), BOMItem.match_level.is_(None))
         .count()
     )
+
+    missing_items = (
+        db.query(BOMItem)
+        .options(joinedload(BOMItem.bom).joinedload(BOM.project))
+        .filter(BOMItem.matched_part_id.is_(None), BOMItem.match_level.is_(None))
+        .order_by(BOMItem.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    missing_bom_items = []
+    for item in missing_items:
+        bom = item.bom
+        project = bom.project if bom else None
+        build_qty = project.build_qty if project else 1
+        needed = (item.qty or 0) * build_qty
+        missing_bom_items.append(
+            MissingBomItemOut(
+                item_id=item.id,
+                bom_id=bom.id if bom else item.bom_id,
+                bom_name=bom.name if bom else item.bom_id,
+                project_id=project.id if project else "",
+                project_name=project.name if project else "",
+                designator=item.designator,
+                qty=item.qty or 0,
+                needed=needed,
+                available=0,
+                shortfall=needed,
+                value=item.value,
+                footprint=item.footprint,
+                mpn=item.mpn,
+                manufacturer=item.manufacturer,
+                matched_part_id=item.matched_part_id,
+            )
+        )
 
     active_projects = (
         db.query(Project).filter(Project.status == "active").count()
@@ -71,11 +111,26 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
         db.query(Part).filter(Part.storage_status == "unassigned").count()
     )
 
-    empty_storage = db.query(InventoryLocation).filter(
-        ~InventoryLocation.id.in_(
-            db.query(InventoryItem.location_id).distinct()
+    occupied_ids = db.query(InventoryItem.location_id).distinct()
+    container_ids = db.query(InventoryLocation.parent_id).distinct()
+    empty_locations = (
+        db.query(InventoryLocation)
+        .filter(
+            ~InventoryLocation.id.in_(occupied_ids),
+            ~InventoryLocation.id.in_(container_ids),
         )
-    ).count()
+        .all()
+    )
+    empty_storage = len(empty_locations)
+    empty_locations.sort(key=lambda loc: loc.full_path())
+    empty_storage_locations = [
+        EmptyStorageLocationOut(
+            id=loc.id,
+            name=loc.name,
+            full_path=loc.full_path(),
+        )
+        for loc in empty_locations[:5]
+    ]
 
     recent_res = (
         db.query(Reservation)
@@ -100,11 +155,14 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_us
         total_parts=total_parts,
         low_stock_parts=low_stock,
         missing_bom_components=missing_bom,
+        missing_bom_items=missing_bom_items,
         active_projects=active_projects,
         shopping_requirements=shopping_requirements or 0,
         recent_transactions=tx_out,
         unassigned_parts=unassigned,
         empty_storage=empty_storage,
+        empty_storage_count=empty_storage,
+        empty_storage_locations=empty_storage_locations,
         recent_reservations=res_out,
         total_quantity=total_quantity,
     )

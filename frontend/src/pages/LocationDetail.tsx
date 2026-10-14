@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import {
   Badge,
@@ -12,14 +12,21 @@ import {
   useAsync,
   useToast,
 } from "../components/ui";
+import { MoveLocationModal } from "../components/MoveLocation";
 
 export default function LocationDetail() {
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const fromScan = (routeLocation.state as { fromScan?: boolean } | null)?.fromScan;
   const [showAdd, setShowAdd] = useState(false);
+  const [showMove, setShowMove] = useState(false);
+  const [showDisc, setShowDisc] = useState(false);
   const [qrVisible, setQrVisible] = useState(false);
   const [allParts, setAllParts] = useState<{ id: string; label: string }[]>([]);
+  const [discPart, setDiscPart] = useState("");
+  const [discQty, setDiscQty] = useState("");
 
   const { data, loading, error, reload } = useAsync(
     () => api.locationContents(id!),
@@ -69,6 +76,25 @@ export default function LocationDetail() {
     }
   };
 
+  const reportDiscrepancy = async () => {
+    const qty = Number(discQty);
+    if (!discPart || !Number.isFinite(qty) || qty < 0) {
+      toast("Pick a part and a non-negative counted quantity", "error");
+      return;
+    }
+    try {
+      await api.reportDiscrepancy(location.id, {
+        part_id: discPart,
+        actual_quantity: qty,
+      });
+      toast("Discrepancy reported, stock corrected");
+      setShowDisc(false);
+      reload();
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    }
+  };
+
   const loadParts = async () => {
     const res = await api.listParts({ limit: 200 });
     setAllParts(
@@ -90,11 +116,23 @@ export default function LocationDetail() {
           <div className="row mt">
             <Badge kind={isCompartment ? "ok" : "info"}>{location.location_type}</Badge>
             {compartments.length > 0 && <Badge kind="neutral">Organizer compartment</Badge>}
+            {fromScan && <Badge kind="warn">Located via QR</Badge>}
           </div>
         </div>
         <div className="actions">
           <button className="btn ghost" onClick={() => { setQrVisible((v) => !v); }}>
             QR code
+          </button>
+          <button className="btn ghost" onClick={() => setShowMove(true)}>
+            Move
+          </button>
+          <button
+            className="btn ghost"
+            onClick={() => setShowDisc(true)}
+            disabled={items.length === 0}
+            title={items.length ? "Correct recorded stock after a count" : "No stock recorded here"}
+          >
+            Report discrepancy
           </button>
           <button
             className="btn"
@@ -236,6 +274,64 @@ export default function LocationDetail() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {showMove && (
+        <MoveLocationModal
+          locationId={location.id}
+          locationLabel={location.name}
+          onClose={() => setShowMove(false)}
+          onMoved={reload}
+        />
+      )}
+
+      {showDisc && (
+        <Modal
+          title={`Report discrepancy at ${location.name}`}
+          onClose={() => setShowDisc(false)}
+        >
+          <p className="muted small mb">
+            Set the recorded quantity to what you actually counted here. A{" "}
+            <span className="mono">discrepancy</span> transaction is posted to
+            correct the stock.
+          </p>
+          <div className="field">
+            <label>Part</label>
+            <select
+              value={discPart}
+              onChange={(e) => {
+                setDiscPart(e.target.value);
+                const item = items.find((i) => i.part_id === e.target.value);
+                if (item) setDiscQty(String(item.quantity));
+              }}
+            >
+              <option value="">Select part…</option>
+              {items.map((i) => (
+                <option key={i.id} value={i.part_id}>
+                  {i.internal_id || "?"} ({i.value} {i.package}) — currently {i.quantity}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Actual quantity counted</label>
+            <input
+              type="number"
+              min={0}
+              value={discQty}
+              onChange={(e) => setDiscQty(e.target.value)}
+              placeholder="e.g. 8"
+            />
+          </div>
+          <div className="modal-actions">
+            <button className="btn ghost" type="button" onClick={() => setShowDisc(false)}>
+              Cancel
+            </button>
+            <button className="btn" onClick={reportDiscrepancy} disabled={!discPart}>
+              Report
+            </button>
+          </div>
         </Modal>
       )}
     </div>

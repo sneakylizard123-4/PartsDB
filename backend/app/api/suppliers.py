@@ -15,6 +15,7 @@ from app.models.user import User
 from app.schemas import (
     PartOut,
     SupplierCandidateOut,
+    SupplierCompareOut,
     SupplierCreate,
     SupplierImportRequest,
     SupplierOut,
@@ -25,6 +26,7 @@ from app.services.part_ids import generate_internal_id
 from app.services.queries import enrich_part, load_part
 from app.services.supplier_catalog import (
     SupplierUnavailableError,
+    compare_catalogs,
     normalize_lcsc_id,
     supplier_lookup,
     supplier_search,
@@ -138,6 +140,18 @@ def lookup_products(
         except SupplierUnavailableError:
             return []
     return [c.to_dict() for c in candidates]
+
+
+@router.get("/compare", response_model=SupplierCompareOut)
+def compare_suppliers(
+    q: str,
+    user: User = Depends(get_current_user),
+):
+    """Compare a part search across all supplier catalogs with a recommendation."""
+    query = (q or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Provide a search query")
+    return compare_catalogs(query)
 
 
 @router.post("/import", response_model=PartOut)

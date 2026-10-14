@@ -18,10 +18,12 @@ from app.config import get_settings
 from app.models.bom import BOM, BOMItem
 from app.models.inventory import InventoryItem
 from app.models.location import InventoryLocation
+from app.models.organizer import Organizer
 from app.models.part import Part
 from app.models.project import Project
 from app.models.reservation import Reservation
 from app.services.bom_matching import match_bom_item
+from app.services.organizer_layout import CompartmentSpec, pack_compartments, size_for_part
 from app.services.queries import part_stats, enrich_part, load_part
 
 log = logging.getLogger(__name__)
@@ -162,6 +164,14 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "count_inventory",
             "description": "Return a summary count of all parts, total stock, and key stats.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "suggest_organization",
+            "description": "Suggest where unassigned parts could be organized into existing or newly created organizers. Returns a read-only plan — nothing is modified.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -384,6 +394,215 @@ def _tool_count_inventory(db: Session, args: dict) -> str:
     )
 
 
+_ORGANIZER_PRESETS = {
+    "small-smd": {
+        "name": "Small SMD",
+        "outer_width": 100,
+        "outer_depth": 80,
+        "outer_height": 12,
+        "default_size": 12,
+        "wall_thickness": 1.2,
+        "divider_thickness": 1.2,
+    },
+    "large-smd": {
+        "name": "Large SMD",
+        "outer_width": 120,
+        "outer_depth": 90,
+        "outer_height": 16,
+        "default_size": 20,
+        "wall_thickness": 1.2,
+        "divider_thickness": 1.2,
+    },
+    "ics": {
+        "name": "ICs",
+        "outer_width": 120,
+        "outer_depth": 100,
+        "outer_height": 18,
+        "default_size": 30,
+        "wall_thickness": 1.4,
+        "divider_thickness": 1.4,
+    },
+    "screws": {
+        "name": "Screws",
+        "outer_width": 140,
+        "outer_depth": 110,
+        "outer_height": 25,
+        "default_size": 35,
+        "wall_thickness": 1.6,
+        "divider_thickness": 1.6,
+    },
+    "mixed": {
+        "name": "Mixed",
+        "outer_width": 120,
+        "outer_depth": 100,
+        "outer_height": 15,
+        "default_size": 20,
+        "wall_thickness": 1.2,
+        "divider_thickness": 1.2,
+    },
+    "stackable-bin": {
+        "name": "Stackable Bin",
+        "outer_width": 160,
+        "outer_depth": 120,
+        "outer_height": 30,
+        "default_size": 30,
+        "wall_thickness": 1.6,
+        "divider_thickness": 1.6,
+    },
+    "wall-mounted": {
+        "name": "Wall-Mounted",
+        "outer_width": 160,
+        "outer_depth": 60,
+        "outer_height": 25,
+        "default_size": 25,
+        "wall_thickness": 1.6,
+        "divider_thickness": 1.6,
+    },
+}
+
+_PRESET_ORDER = sorted(
+    _ORGANIZER_PRESETS, key=lambda k: (_ORGANIZER_PRESETS[k]["default_size"], k)
+)
+
+_MAX_PLAN_LINES = 8
+
+
+def _organizer_preset_capacity(preset: dict) -> tuple[float, float, float]:
+    return (
+        preset["outer_width"] - 2 * preset["wall_thickness"],
+        preset["outer_depth"] - 2 * preset["wall_thickness"],
+        preset["outer_height"] - 3.0,
+    )
+
+
+def _part_label(part) -> str:
+    return part.internal_id or part.value or part.mpn or getattr(part, "id", "?")
+
+
+def _compartment_label(comp) -> str:
+    return comp.label or f"R{comp.row + 1}C{comp.col + 1}"
+
+
+def _format_part(part, size) -> str:
+    w, d, h = size
+    return (
+        f"{_part_label(part)} ({part.value or ''} {part.package or ''}) "
+        f"→ {w:.1f}×{d:.1f}×{h:.1f} mm"
+    )
+
+
+def build_suggestion_plan(parts, organizers) -> str:
+    """Pure, read-only suggestion of where unassigned parts could go.
+
+    Returns a compact multi-line plan; never touches the database.
+    """
+    parts = sorted(
+        list(parts),
+        key=lambda p: ((p.value or "") or "", (p.internal_id or "") or ""),
+    )
+    organizers = sorted(
+        list(organizers),
+        key=lambda o: ((o.name or "") or "", str(getattr(o, "id", "") or "")),
+    )
+
+    used_ids = {id(o): set() for o in organizers}
+    plan: list[tuple[Any, str, Any, tuple[float, float, float]]] = []
+    need_new = []
+    for part in parts:
+        size = size_for_part(part)
+        slot = None
+        for o in organizers:
+            comps = sorted(o.compartments, key=lambda c: (c.row, c.col))
+            for c in comps:
+                if c.part_id or c.id in used_ids[id(o)]:
+                    continue
+                if size[0] <= c.width and size[1] <= c.depth and size[2] <= c.height:
+                    used_ids[id(o)].add(c.id)
+                    slot = (o, _compartment_label(c), part, size)
+                    break
+            if slot:
+                break
+        if slot:
+            plan.append(slot)
+        else:
+            need_new.append((part, size))
+
+    groups: dict[str, list[tuple[Any, tuple[float, float, float]]]] = {}
+    no_fit = []
+    for part, size in need_new:
+        preset = None
+        for key in _PRESET_ORDER:
+            inner_w, inner_d, inner_h = _organizer_preset_capacity(_ORGANIZER_PRESETS[key])
+            if size[0] <= inner_w and size[1] <= inner_d and size[2] <= inner_h:
+                preset = key
+                break
+        if preset:
+            groups.setdefault(preset, []).append((part, size))
+        else:
+            no_fit.append((part, size))
+
+    lines = [f"Organization plan ({len(parts)} unassigned parts, read-only):"]
+    if plan:
+        lines.append("\nExisting organizers:")
+        for o in organizers:
+            entries = [e for e in plan if e[0] is o]
+            if not entries:
+                continue
+            lines.append(f"  {o.name}:")
+            for _o, label, part, size in entries[:_MAX_PLAN_LINES]:
+                lines.append(f"    - {label}: {_format_part(part, size)}")
+            if len(entries) > _MAX_PLAN_LINES:
+                lines.append(f"    … and {len(entries) - _MAX_PLAN_LINES} more")
+    new_sections = [k for k in _PRESET_ORDER if groups.get(k)]
+    if new_sections:
+        lines.append("\nNew organizers to create:")
+        for key in new_sections:
+            entries = groups[key]
+            preset = _ORGANIZER_PRESETS[key]
+            specs = [
+                CompartmentSpec(width=s[1][0], depth=s[1][1], height=s[1][2])
+                for s in entries
+            ]
+            inner_w, inner_d, inner_h = _organizer_preset_capacity(preset)
+            pack = pack_compartments(
+                inner_w,
+                inner_d,
+                preset["divider_thickness"],
+                specs,
+                default_size=float(preset["default_size"]),
+                default_height=inner_h,
+            )
+            lines.append(
+                f"  new \"{preset['name']}\" (preset {key}): "
+                f"{len(pack.cells)} of {len(entries)} parts fit"
+            )
+            for part, size in entries[:_MAX_PLAN_LINES]:
+                lines.append(f"    - {_format_part(part, size)}")
+            if len(entries) > _MAX_PLAN_LINES:
+                lines.append(f"    … and {len(entries) - _MAX_PLAN_LINES} more")
+    if no_fit:
+        lines.append("\nStay unassigned (no organizer fits these):")
+        for part, size in no_fit[:_MAX_PLAN_LINES]:
+            lines.append(f"  - {_format_part(part, size)}")
+        if len(no_fit) > _MAX_PLAN_LINES:
+            lines.append(f"  … and {len(no_fit) - _MAX_PLAN_LINES} more")
+
+    text = "\n".join(lines)
+    if len(text) > 1200:
+        text = text[:1200].rstrip() + "\n…"
+    return text
+
+
+def _tool_suggest_organization(db: Session, args: dict) -> str:
+    parts = db.query(Part).filter(Part.storage_status == "unassigned").all()
+    if not parts:
+        return "All parts have assigned storage."
+    organizers = (
+        db.query(Organizer).order_by(Organizer.name.asc(), Organizer.id.asc()).all()
+    )
+    return build_suggestion_plan(parts, organizers)
+
+
 TOOL_HANDLERS: dict[str, Any] = {
     "search_parts": _tool_search_parts,
     "get_part_details": _tool_get_part_details,
@@ -395,6 +614,7 @@ TOOL_HANDLERS: dict[str, Any] = {
     "get_project": _tool_get_project,
     "suggest_purchase": _tool_suggest_purchase,
     "count_inventory": _tool_count_inventory,
+    "suggest_organization": _tool_suggest_organization,
 }
 
 

@@ -446,6 +446,22 @@ body {
   background: #fafbfc;
 }
 
+.table tr.compare-recommended td {
+  background: var(--ok-bg);
+}
+
+.table tr.compare-recommended:hover td {
+  background: #e4f5ea;
+}
+
+.table tr.clickable {
+  cursor: pointer;
+}
+
+.err-text {
+  color: var(--danger);
+}
+
 .table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -720,6 +736,23 @@ body {
   width: 160px;
   height: 160px;
   image-rendering: pixelated;
+}
+
+.qr-reader {
+  width: 100%;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #111;
+  margin-bottom: 12px;
+}
+
+.scan-error {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
 }
 
 .code-block {

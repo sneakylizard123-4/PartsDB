@@ -10,6 +10,42 @@ import {
   useAsync,
   useToast,
 } from "../components/ui";
+import type { ShoppingListItem } from "../types";
+
+function itemStatusBadge(status: string) {
+  switch (status) {
+    case "available":
+      return <Badge kind="ok">Available</Badge>;
+    case "reserved":
+      return <Badge kind="info">Reserved</Badge>;
+    case "missing":
+      return <Badge kind="danger">Missing</Badge>;
+    case "purchase":
+      return <Badge kind="warn">Purchase</Badge>;
+    default:
+      return <Badge kind="neutral">{status}</Badge>;
+  }
+}
+
+function SummaryStrip({ items }: { items: ShoppingListItem[] }) {
+  const totals = items.reduce(
+    (acc, i) => ({
+      available: acc.available + i.available_quantity,
+      reserved: acc.reserved + i.reserved_quantity,
+      missing: acc.missing + i.missing_quantity,
+      purchase: acc.purchase + i.purchase_quantity,
+    }),
+    { available: 0, reserved: 0, missing: 0, purchase: 0 }
+  );
+  return (
+    <div className="row gap mb" style={{ flexWrap: "wrap" }}>
+      <Badge kind="ok">{totals.available} available</Badge>
+      <Badge kind="info">{totals.reserved} reserved</Badge>
+      <Badge kind="danger">{totals.missing} missing</Badge>
+      <Badge kind="warn">{totals.purchase} to purchase</Badge>
+    </div>
+  );
+}
 
 export default function ShoppingLists() {
   const toast = useToast();
@@ -129,6 +165,7 @@ export default function ShoppingLists() {
             <div className="muted small mt">
               {l.items.length} items ·{" "}
               {l.items.reduce((n, i) => n + i.quantity, 0)} pcs ·{" "}
+              {l.items.reduce((n, i) => n + i.purchase_quantity, 0)} to purchase ·{" "}
               {new Date(l.created_at).toLocaleDateString()}
             </div>
           </button>
@@ -149,11 +186,16 @@ export default function ShoppingLists() {
               </button>
             </div>
           </div>
+          <SummaryStrip items={active.items} />
           <table className="table">
             <thead>
               <tr>
                 <th>Item</th>
                 <th className="num">Qty</th>
+                <th className="num">Avail</th>
+                <th className="num">Rsvd</th>
+                <th className="num">Miss</th>
+                <th className="num">Buy</th>
                 <th>Status</th>
                 <th>Notes</th>
                 <th></th>
@@ -169,11 +211,11 @@ export default function ShoppingLists() {
                   <td className="num">
                     <Quantity value={i.quantity} />
                   </td>
-                  <td>
-                    <Badge kind={i.status === "fulfilled" ? "ok" : i.status === "in_cart" ? "warn" : "neutral"}>
-                      {i.status}
-                    </Badge>
-                  </td>
+                  <td className="num">{i.available_quantity}</td>
+                  <td className="num">{i.reserved_quantity}</td>
+                  <td className="num">{i.missing_quantity}</td>
+                  <td className="num">{i.purchase_quantity}</td>
+                  <td>{itemStatusBadge(i.status)}</td>
                   <td className="muted small">{i.notes}</td>
                   <td className="num">
                     <button className="btn sm ghost" onClick={() => removeItem(i.id)}>

@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict
 
 from sqlalchemy.orm import Session
@@ -23,6 +24,66 @@ def part_available(db: Session, part_id: str) -> int:
         .all()
     )
     return stock - reserved
+
+
+def round_up_to_pack(qty: int, pack: int = 5) -> int:
+    """Round a quantity up to a whole number of packs."""
+    if qty <= 0:
+        return 0
+    return int(math.ceil(qty / pack) * pack)
+
+
+def item_stock_split(db: Session, item: ShoppingListItem) -> dict:
+    """Split an item's requirement into available/reserved/missing/purchase.
+
+    Derived on read so it always reflects current stock and reservations;
+    generation itself is unchanged. Status buckets:
+    - "available": free stock already covers the requirement
+    - "missing":   no stock on hand at all
+    - "purchase":  partial stock, top-up recommended
+    - "reserved":  all on-hand stock is committed to reservations
+    """
+    required = item.quantity or 0
+    if item.part_id is None:
+        missing = max(0, required)
+        return {
+            "status": "purchase" if missing > 0 else "available",
+            "available_quantity": 0,
+            "reserved_quantity": 0,
+            "missing_quantity": missing,
+            "purchase_quantity": round_up_to_pack(missing),
+        }
+    total = sum(
+        q
+        for (q,) in db.query(InventoryItem.quantity)
+        .filter(InventoryItem.part_id == item.part_id)
+        .all()
+    )
+    reserved = sum(
+        r.quantity
+        for r in db.query(Reservation)
+        .filter(Reservation.part_id == item.part_id, Reservation.status == "active")
+        .all()
+    )
+    available = max(0, total - reserved)
+    missing = max(0, required - available)
+    if missing == 0:
+        status = "available"
+    elif total == 0:
+        status = "missing"
+    elif available > 0:
+        status = "purchase"
+    elif reserved > 0:
+        status = "reserved"
+    else:
+        status = "purchase"
+    return {
+        "status": status,
+        "available_quantity": available,
+        "reserved_quantity": reserved,
+        "missing_quantity": missing,
+        "purchase_quantity": round_up_to_pack(missing),
+    }
 
 
 def analyze_requirements(db: Session, project: Project) -> dict:

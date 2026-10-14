@@ -183,6 +183,15 @@ class DrawerGridCreate(BaseModel):
     notes: str | None = None
 
 
+class LocationMove(BaseModel):
+    new_parent_id: str
+
+
+class LocationDiscrepancyReport(BaseModel):
+    part_id: str
+    actual_quantity: int = Field(ge=0)
+
+
 class LocationOut(ORMModel):
     id: str
     name: str
@@ -304,6 +313,36 @@ class SupplierPartCreate(BaseModel):
     datasheet_url: str | None = None
 
 
+class SupplierOfferOut(BaseModel):
+    source: str
+    supplier: str
+    part_label: str
+    part_number: str | None = None
+    mpn: str | None = None
+    manufacturer: str | None = None
+    description: str | None = None
+    value: str | None = None
+    package: str | None = None
+    price: float | None = None
+    currency: str | None = None
+    stock: int | None = None
+    url: str | None = None
+    in_stock: bool = False
+
+
+class SupplierRecommendationOut(BaseModel):
+    source: str
+    part_label: str
+    reason: str
+
+
+class SupplierCompareOut(BaseModel):
+    query: str
+    offers: list[SupplierOfferOut] = Field(default_factory=list)
+    recommendation: SupplierRecommendationOut | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 # ---------- Projects ----------
 
 
@@ -389,6 +428,73 @@ class BomItemMatch(BaseModel):
     reason: str
 
 
+class BomMatchApprove(BaseModel):
+    part_id: str
+
+
+class BomMatchCandidate(BaseModel):
+    part_id: str
+    internal_id: str | None = None
+    value: str | None = None
+    package: str | None = None
+    manufacturer: str | None = None
+    mpn: str | None = None
+    match_level: str
+    reason: str
+    available_quantity: int | None = None
+
+
+class BomReviewItem(BaseModel):
+    bom_id: str
+    bom_name: str
+    item_id: str
+    designator: str
+    qty: int
+    value: str | None = None
+    footprint: str | None = None
+    mpn: str | None = None
+    manufacturer: str | None = None
+    match_level: str | None = None
+    candidates: list[BomMatchCandidate] = Field(default_factory=list)
+
+
+class BomReviewResponse(BaseModel):
+    total: int
+    items: list[BomReviewItem] = Field(default_factory=list)
+
+
+class BOMSnapshotItem(BaseModel):
+    designator: str
+    qty: int
+    value: str | None = None
+    footprint: str | None = None
+    mpn: str | None = None
+    manufacturer: str | None = None
+
+
+class BomRevisionDiffItem(BaseModel):
+    designator: str
+    status: str  # added | removed | changed | unchanged
+    from_item: BOMSnapshotItem | None = None
+    to_item: BOMSnapshotItem | None = None
+    qty_change: int = 0
+    part: dict[str, Any] | None = None
+    needed: int = 0
+    available: int | None = None
+    shortfall: int = 0
+
+
+class BomRevisionDiff(BaseModel):
+    bom_id: str
+    bom_name: str
+    project_id: str
+    build_qty: int
+    from_revision: BOMRevisionOut | None = None
+    to_revision: BOMRevisionOut | None = None
+    items: list[BomRevisionDiffItem] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+
+
 # ---------- Reservations ----------
 
 
@@ -407,6 +513,7 @@ class ReservationOut(ORMModel):
     project_name: str | None = None
     part_value: str | None = None
     part_internal_id: str | None = None
+    created_at: datetime
 
 
 # ---------- Shopping lists ----------
@@ -423,6 +530,13 @@ class ShoppingListItemCreate(BaseModel):
     notes: str | None = None
 
 
+class ShoppingListSummary(BaseModel):
+    available: int = 0
+    reserved: int = 0
+    missing: int = 0
+    purchase: int = 0
+
+
 class ShoppingListItemOut(ORMModel):
     id: str
     part_id: str | None
@@ -433,6 +547,10 @@ class ShoppingListItemOut(ORMModel):
     notes: str | None
     part_value: str | None = None
     part_internal_id: str | None = None
+    available_quantity: int = 0
+    reserved_quantity: int = 0
+    missing_quantity: int = 0
+    purchase_quantity: int = 0
 
 
 class ShoppingListOut(ORMModel):
@@ -441,6 +559,7 @@ class ShoppingListOut(ORMModel):
     status: str
     created_at: datetime
     items: list[ShoppingListItemOut] = Field(default_factory=list)
+    summary: ShoppingListSummary = Field(default_factory=ShoppingListSummary)
 
 
 # ---------- Organizers ----------
@@ -463,7 +582,25 @@ class OrganizerGenerate(BaseModel):
     wall_thickness: float = 1.2
     divider_thickness: float = 1.2
     clearance: float = 0.2
+    config: dict[str, Any] | None = None
     compartments: list[CompartmentRequirement] = Field(default_factory=list)
+
+
+class PartSizeRequest(BaseModel):
+    part_ids: list[str]
+
+
+class PartSizeOut(BaseModel):
+    part_id: str
+    width: float
+    depth: float
+    height: float
+    package: str | None = None
+    value: str | None = None
+
+
+class AutoAssignRequest(BaseModel):
+    organizer_id: str
 
 
 class CompartmentOut(ORMModel):
@@ -496,20 +633,48 @@ class OrganizerOut(ORMModel):
     stl_path: str | None
     compartments: list[CompartmentOut] = Field(default_factory=list)
     created_at: datetime
+    note: str | None = None
 
 
 # ---------- Dashboard ----------
+
+
+class MissingBomItemOut(BaseModel):
+    item_id: str
+    bom_id: str
+    bom_name: str
+    project_id: str
+    project_name: str
+    designator: str
+    qty: int
+    needed: int
+    available: int
+    shortfall: int
+    value: str | None = None
+    footprint: str | None = None
+    mpn: str | None = None
+    manufacturer: str | None = None
+    matched_part_id: str | None = None
+
+
+class EmptyStorageLocationOut(BaseModel):
+    id: str
+    name: str
+    full_path: str = ""
 
 
 class DashboardStats(BaseModel):
     total_parts: int
     low_stock_parts: int
     missing_bom_components: int
+    missing_bom_items: list[MissingBomItemOut] = Field(default_factory=list)
     active_projects: int
     shopping_requirements: int
     recent_transactions: list[TransactionOut]
     unassigned_parts: int
     empty_storage: int
+    empty_storage_count: int = 0
+    empty_storage_locations: list[EmptyStorageLocationOut] = Field(default_factory=list)
     recent_reservations: list[ReservationOut]
     total_quantity: int
 

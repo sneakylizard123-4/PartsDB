@@ -1,13 +1,33 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { ErrorBox, Loading, Modal, errorMessage, useToast } from "../components/ui";
-import type { SupplierCandidate } from "../types";
+import { Badge, ErrorBox, Loading, Modal, errorMessage, useToast } from "../components/ui";
+import type { SupplierCandidate, SupplierCompare, SupplierOffer } from "../types";
 
 const SOURCES = [
   { value: "lcsc", label: "LCSC" },
   { value: "digikey", label: "DigiKey" },
 ];
+
+function toCandidate(o: SupplierOffer): SupplierCandidate {
+  return {
+    source: o.source,
+    part_number: o.part_number ?? o.part_label,
+    mpn: o.mpn,
+    manufacturer: o.manufacturer,
+    description: o.description,
+    value: o.value,
+    package: o.package,
+    category: null,
+    msl: null,
+    datasheet_url: null,
+    price: o.price,
+    currency: o.currency,
+    stock: o.stock,
+    url: o.url,
+    specs: {},
+  };
+}
 
 function ImportModal({
   candidate,
@@ -108,6 +128,11 @@ export default function SupplierImport() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<SupplierCandidate | null>(null);
 
+  const [compareQuery, setCompareQuery] = useState("");
+  const [compare, setCompare] = useState<SupplierCompare | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const [compareError, setCompareError] = useState("");
+
   const search = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const q = query.trim();
@@ -128,6 +153,42 @@ export default function SupplierImport() {
       setLoading(false);
     }
   };
+
+  const compareAll = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const q = compareQuery.trim();
+    if (!q) {
+      toast("Enter a search term or part number", "error");
+      return;
+    }
+    setComparing(true);
+    setCompareError("");
+    setCompare(null);
+    try {
+      const res = await api.supplierCompare(q);
+      setCompare(res);
+      if (res.offers.length === 0) toast("No offers found", "error");
+    } catch (err) {
+      setCompareError(errorMessage(err));
+    } finally {
+      setComparing(false);
+    }
+  };
+
+  const copyMpn = async (o: SupplierOffer) => {
+    const text = o.mpn || o.part_number || o.part_label;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Copied");
+    } catch {
+      toast("Could not copy", "error");
+    }
+  };
+
+  const recommended = (o: SupplierOffer) =>
+    compare?.recommendation &&
+    compare.recommendation.source === o.source &&
+    compare.recommendation.part_label === o.part_label;
 
   return (
     <div>
@@ -161,6 +222,123 @@ export default function SupplierImport() {
 
       {error && <ErrorBox message={error} />}
       {loading && <Loading />}
+
+      <div className="card mb" style={{ maxWidth: 760 }}>
+        <h2>Compare suppliers</h2>
+        <div className="muted small mb">
+          Search LCSC and DigiKey side by side and get a recommendation based on price
+          and stock.
+        </div>
+        <form className="row" style={{ gap: 10 }} onSubmit={compareAll}>
+          <input
+            style={{ flex: 1 }}
+            placeholder="Part number or keyword…"
+            value={compareQuery}
+            onChange={(e) => setCompareQuery(e.target.value)}
+          />
+          <button className="btn" type="submit" disabled={comparing}>
+            {comparing ? "Comparing…" : "Compare"}
+          </button>
+        </form>
+      </div>
+
+      {compareError && <ErrorBox message={compareError} />}
+      {comparing && <Loading />}
+
+      {!comparing && compare && (
+        <div className="card mb">
+          <div className="spread mb">
+            <h2>Offers for “{compare.query}”</h2>
+            <div className="muted small">{compare.offers.length} results</div>
+          </div>
+          {compare.warnings.length > 0 && (
+            <div className="muted small mb">
+              {compare.warnings.map((w, i) => (
+                <div key={i}>⚠ {w}</div>
+              ))}
+            </div>
+          )}
+          {compare.recommendation && (
+            <div className="badge ok mb" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+              <span className="dot" />
+              <span>Recommended: {compare.recommendation.reason}</span>
+            </div>
+          )}
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th>Part</th>
+                <th className="num">Price</th>
+                <th className="num">Stock</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {compare.offers.map((o) => {
+                const rec = recommended(o);
+                return (
+                  <tr
+                    key={`${o.source}-${o.part_number}-${o.part_label}`}
+                    className={rec ? "compare-recommended" : ""}
+                  >
+                    <td>
+                      <strong>{o.supplier}</strong>
+                      {rec && <div>
+                        <Badge kind="ok">Recommended</Badge>
+                      </div>}
+                      <div className={`muted small ${o.in_stock ? "" : "err-text"}`}>
+                        {o.in_stock ? `${o.stock} in stock` : "out of stock"}
+                      </div>
+                    </td>
+                    <td>
+                      <strong>{o.part_label}</strong>
+                      {o.manufacturer && <div className="muted small">{o.manufacturer}</div>}
+                      {o.value && <div className="mono small">{o.value}</div>}
+                      {o.description && (
+                        <div className="muted small">{o.description.slice(0, 80)}</div>
+                      )}
+                    </td>
+                    <td className="num small">
+                      {o.price !== null && o.price !== undefined
+                        ? `${o.currency ?? ""} ${o.price}`
+                        : "—"}
+                    </td>
+                    <td className="num small">{o.stock ?? "—"}</td>
+                    <td className="small">
+                      <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+                        <button className="btn sm ghost" onClick={() => copyMpn(o)}>
+                          copy MPN
+                        </button>
+                        {o.url && (
+                          <a
+                            className="btn sm ghost"
+                            href={o.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            view
+                          </a>
+                        )}
+                        <button className="btn sm" onClick={() => setSelected(toCandidate(o))}>
+                          Import
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {compare.offers.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="empty">
+                    No offers found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {!loading && results && (
         <div className="card">

@@ -1,4 +1,17 @@
+import re
 from dataclasses import dataclass, field
+
+_SMD_CODES = {
+    "0201": (0.6, 0.3),
+    "0402": (1.0, 0.5),
+    "0603": (1.6, 0.8),
+    "0805": (2.0, 1.25),
+    "1206": (3.2, 1.6),
+    "1210": (3.2, 2.5),
+    "1812": (4.5, 3.2),
+    "2010": (5.0, 2.5),
+    "2512": (6.3, 3.2),
+}
 
 
 @dataclass
@@ -128,3 +141,100 @@ def pack_compartments(
         result.used_depth = max(result.used_depth, shelf.y + shelf.depth)
     result.rows = len(shelves)
     return result
+
+
+def _to_float(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _explicit_size(part) -> tuple[float, float, float] | None:
+    specs = getattr(part, "other_specs", None)
+    if not isinstance(specs, dict) or not specs:
+        return None
+    raw = specs.get("size")
+    if isinstance(raw, (list, tuple)) and len(raw) >= 3:
+        vals = [_to_float(x) for x in raw[:3]]
+        if all(v and v > 0 for v in vals):
+            return (vals[0], vals[1], vals[2])
+    if isinstance(raw, dict):
+        vals = [_to_float(raw.get(k)) for k in ("length", "width", "height")]
+        if all(v and v > 0 for v in vals):
+            return (vals[0], vals[1], vals[2])
+    vals = [_to_float(specs.get(k)) for k in ("length", "width", "height")]
+    if vals[0] and vals[1]:
+        height = vals[2] if vals[2] and vals[2] > 0 else 5.0
+        return (vals[0], vals[1], height)
+    return None
+
+
+def _package_footprint(package: str | None) -> tuple[float, float, float] | None:
+    pkg = "" if package is None else str(package)
+    p = "".join(ch for ch in pkg.upper() if ch.isalnum())
+
+    if "SOT353" in p or "SC70" in p:
+        return (2.2, 1.35, 1.1)
+    if "SOT223" in p:
+        return (6.5, 3.5, 1.8)
+    if "SOT89" in p:
+        return (4.5, 2.5, 1.5)
+    if "SOT23" in p:
+        return (3.0, 1.75, 1.2)
+    if "TO220" in p:
+        return (15.2, 10.4, 4.5)
+    if "TO92" in p:
+        return (4.5, 3.5, 4.5)
+
+    m = re.search(r"DIP(\d+)", p)
+    if m:
+        n = int(m.group(1))
+        length = 2.54 * (n / 2) + 2.54
+        return (length, 7.5, 3.5)
+    m = re.search(r"SOIC(\d+)", p)
+    if m:
+        width = 6.0 + (1.0 if int(m.group(1)) > 14 else 0.0)
+        return (width, 5.0, 1.75)
+    m = re.search(r"QFN(\d+)", p)
+    if m:
+        n = int(m.group(1))
+        body = 4.0 if n <= 28 else 5.0 if n <= 32 else 6.0 if n <= 48 else 7.0
+        return (body, body, 0.9)
+    m = re.search(r"QFP(\d*)", p)
+    if m:
+        n = int(m.group(1)) if m.group(1) else 0
+        body = 7.0 if n <= 48 else 10.0 if n <= 80 else 14.0
+        return (body, body, 1.6)
+
+    m = re.search(r"(?<!\d)(\d{4})(?!\d)", p)
+    if m:
+        code = m.group(1)
+        if code in _SMD_CODES:
+            w, d = _SMD_CODES[code]
+            return (w, d, 1.6)
+        w = int(code[:2]) * 0.254
+        d = int(code[2:]) * 0.254
+        return (round(w, 1), round(d, 1), 1.6)
+
+    return None
+
+
+def size_for_part(part) -> tuple[float, float, float]:
+    """Suggested compartment size (mm) for a part: (width, depth, height).
+
+    Uses explicit dimensions from part.other_specs when present, otherwise
+    heuristics from the package string. Applies a clearance multiplier and
+    wall padding so the part fits comfortably.
+    """
+    explicit = _explicit_size(part)
+    package = getattr(part, "package", None)
+    w, d, h = explicit or _package_footprint(package) or (12.0, 12.0, 10.0)
+    cw = round(w * 1.4 + 2.0, 1)
+    cd = round(d * 1.4 + 2.0, 1)
+    ch = round(h * 1.5 + 2.0, 1)
+    return (cw, cd, ch)

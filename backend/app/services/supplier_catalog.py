@@ -731,3 +731,101 @@ def supplier_lookup(source: str, part_number: str) -> SupplierCandidate:
 
 def supplier_search(source: str, query: str) -> list[SupplierCandidate]:
     return get_catalog(source).search(query)
+
+
+def candidate_to_offer(candidate: SupplierCandidate) -> dict[str, Any]:
+    """Map a SupplierCandidate into a lightweight compare-offer dict."""
+    return {
+        "source": candidate.source,
+        "supplier": "LCSC" if candidate.source == "lcsc" else "DigiKey",
+        "part_label": candidate.mpn or candidate.part_number or "—",
+        "part_number": candidate.part_number,
+        "mpn": candidate.mpn,
+        "manufacturer": candidate.manufacturer,
+        "description": candidate.description,
+        "value": candidate.value,
+        "package": candidate.package,
+        "price": candidate.price,
+        "currency": candidate.currency,
+        "stock": candidate.stock,
+        "url": candidate.url,
+        "in_stock": bool(candidate.stock and candidate.stock > 0),
+    }
+
+
+def compare_all_sources(query: str) -> tuple[list[dict[str, Any]], list[str]]:
+    """Search every catalog, degrading gracefully per supplier.
+
+    A supplier that fails surfaces as a warning instead of crashing the whole
+    comparison.
+    """
+    offers: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for source in ("lcsc", "digikey"):
+        try:
+            candidates = supplier_search(source, query)
+        except SupplierUnavailableError as exc:
+            warnings.append(str(exc))
+            continue
+        if not candidates:
+            try:
+                candidates = [supplier_lookup(source, query)]
+            except SupplierUnavailableError as exc:
+                warnings.append(str(exc))
+                continue
+        offers.extend(candidate_to_offer(c) for c in candidates)
+    return offers, warnings
+
+
+def recommend_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Pick the best offer: cheapest unit price with stock, else cheapest price."""
+    priced = [
+        o
+        for o in offers
+        if isinstance(o.get("price"), (int, float)) and o.get("price", 0) > 0
+    ]
+    if not priced:
+        if not offers:
+            return None
+        best = max(offers, key=lambda x: x.get("stock") or 0)
+        return {
+            "source": best["source"],
+            "part_label": best["part_label"],
+            "reason": (
+                f"{best['supplier']}: {best.get('stock') or 0} in stock "
+                "(no pricing published)"
+            ),
+        }
+    in_stock = [o for o in priced if (o.get("stock") or 0) > 0]
+    pool = in_stock if in_stock else priced
+    best = min(
+        pool,
+        key=lambda x: (x["price"] or float("inf"), -(x.get("stock") or 0)),
+    )
+    price = f"{best['currency'] or 'USD'} {best['price']}"
+    if in_stock:
+        reason = (
+            f"{best['supplier']} {best['part_label']} — {price}, "
+            f"{best.get('stock')} in stock (cheapest in-stock)"
+        )
+    else:
+        reason = (
+            f"{best['supplier']} {best['part_label']} — {price} "
+            f"(cheapest price, {best.get('stock') or 0} in stock)"
+        )
+    return {
+        "source": best["source"],
+        "part_label": best["part_label"],
+        "reason": reason,
+    }
+
+
+def compare_catalogs(query: str) -> dict[str, Any]:
+    """Full comparison payload for the API: offers + recommendation + warnings."""
+    offers, warnings = compare_all_sources(query)
+    return {
+        "query": query,
+        "offers": offers,
+        "recommendation": recommend_offer(offers),
+        "warnings": warnings,
+    }

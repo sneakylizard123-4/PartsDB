@@ -8,8 +8,20 @@ from app.deps import get_current_user
 from app.models.organizer import Organizer, OrganizerCompartment
 from app.models.part import Part
 from app.models.user import User
-from app.schemas import CompartmentOut, OrganizerGenerate, OrganizerOut
-from app.services.organizer_layout import CompartmentSpec, pack_compartments
+from app.schemas import (
+    AutoAssignRequest,
+    CompartmentOut,
+    OrganizerGenerate,
+    OrganizerOut,
+    PartSizeOut,
+    PartSizeRequest,
+)
+from app.services.organizer_layout import (
+    CompartmentSpec,
+    PackResult,
+    pack_compartments,
+    size_for_part,
+)
 from app.services.organizer_mesh import write_organizer_stl
 
 router = APIRouter(prefix="/api/organizers", tags=["organizers"])
@@ -93,6 +105,42 @@ def _to_out(db: Session, o: Organizer) -> OrganizerOut:
     return out
 
 
+def _features_for(o: Organizer) -> dict[str, bool]:
+    features: dict[str, bool] = {}
+    config = o.config or {}
+    if o.preset == "stackable-bin" or config.get("stackable"):
+        features["stackable"] = True
+    if o.preset == "wall-mounted" or config.get("wall_mount"):
+        features["wall_mount"] = True
+    if config.get("qr_pocket") or any(c.label for c in o.compartments):
+        features["qr"] = True
+    return features
+
+
+def _pack_from_organizer(o: Organizer) -> PackResult:
+    inner_w = o.outer_width - 2 * o.wall_thickness
+    inner_d = o.outer_depth - 2 * o.wall_thickness
+    comps = sorted(o.compartments, key=lambda c: (c.row, c.col))
+    specs = [
+        CompartmentSpec(
+            label=c.label,
+            part_id=c.part_id,
+            width=c.width,
+            depth=c.depth,
+            height=c.height,
+        )
+        for c in comps
+    ]
+    return pack_compartments(
+        inner_w,
+        inner_d,
+        o.divider_thickness,
+        specs,
+        default_size=30.0,
+        default_height=o.outer_height - 3.0,
+    )
+
+
 @router.get("/presets")
 def presets(user: User = Depends(get_current_user)):
     return PRESETS
@@ -101,6 +149,102 @@ def presets(user: User = Depends(get_current_user)):
 @router.get("", response_model=list[OrganizerOut])
 def list_organizers(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return [_to_out(db, o) for o in db.query(Organizer).order_by(Organizer.created_at.desc()).all()]
+
+
+@router.post("/size", response_model=list[PartSizeOut])
+def suggest_part_sizes(
+    body: PartSizeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    results = []
+    for part_id in body.part_ids:
+        part = db.get(Part, part_id)
+        if part is None:
+            raise HTTPException(status_code=404, detail=f"Part not found: {part_id}")
+        width, depth, height = size_for_part(part)
+        results.append(
+            PartSizeOut(
+                part_id=part.id,
+                width=width,
+                depth=depth,
+                height=height,
+                package=part.package,
+                value=part.value,
+            )
+        )
+    return results
+
+
+@router.post("/auto-assign", response_model=OrganizerOut)
+def auto_assign(
+    body: AutoAssignRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    o = db.get(Organizer, body.organizer_id)
+    if o is None:
+        raise HTTPException(status_code=404, detail="Organizer not found")
+    empty = [c for c in o.compartments if not c.part_id]
+    if not empty:
+        out = _to_out(db, o)
+        out.note = "Organizer has no empty compartments"
+        return out
+    unassigned = (
+        db.query(Part)
+        .filter(Part.storage_status == "unassigned")
+        .order_by(Part.value.asc().nullslast(), Part.internal_id.asc().nullslast())
+        .all()
+    )
+    if not unassigned:
+        out = _to_out(db, o)
+        out.note = "No unassigned parts found"
+        return out
+
+    parts = [p for p in unassigned if p.storage_status == "unassigned"]
+    parts.sort(key=lambda p: (size_for_part(p)[0] * size_for_part(p)[1], p.value or ""))
+    compartments = sorted(empty, key=lambda c: (c.width * c.depth, c.row, c.col))
+
+    assigned = 0
+    for comp in compartments:
+        for part in parts:
+            if part.storage_status != "unassigned":
+                continue
+            w, d, h = size_for_part(part)
+            if w <= comp.width and d <= comp.depth and h <= comp.height:
+                comp.part_id = part.id
+                part.storage_status = "assigned"
+                assigned += 1
+                break
+
+    if assigned:
+        pack = _pack_from_organizer(o)
+        if pack.error:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=pack.error)
+        comps_sorted = sorted(o.compartments, key=lambda c: (c.row, c.col))
+        for cell, comp in zip(pack.cells, comps_sorted):
+            comp.row = cell.row
+            comp.col = cell.col
+        settings = get_settings()
+        stl_path = settings.backups_path.parent / "generated" / f"organizer-{o.id}.stl"
+        write_organizer_stl(
+            stl_path,
+            o.outer_width,
+            o.outer_depth,
+            o.outer_height,
+            o.wall_thickness,
+            o.divider_thickness,
+            pack,
+            features=_features_for(o),
+        )
+        o.stl_path = str(stl_path)
+
+    db.commit()
+    db.refresh(o)
+    out = _to_out(db, o)
+    out.note = f"Assigned {assigned} part(s) to empty compartments"
+    return out
 
 
 @router.get("/{organizer_id}", response_model=OrganizerOut)
@@ -127,16 +271,25 @@ def create_organizer(
     inner_w = body.outer_width - 2 * wt
     inner_d = body.outer_depth - 2 * wt
 
-    specs = [
-        CompartmentSpec(
-            label=c.label,
-            part_id=c.part_id,
-            width=c.width,
-            depth=c.depth,
-            height=c.height,
+    specs = []
+    for c in body.compartments:
+        width, depth, height = c.width, c.depth, c.height
+        if c.part_id and (width is None or depth is None or height is None):
+            part = db.get(Part, c.part_id)
+            if part is None:
+                raise HTTPException(
+                    status_code=400, detail=f"Part not found: {c.part_id}"
+                )
+            width, depth, height = size_for_part(part)
+        specs.append(
+            CompartmentSpec(
+                label=c.label,
+                part_id=c.part_id,
+                width=width,
+                depth=depth,
+                height=height,
+            )
         )
-        for c in body.compartments
-    ]
     default_size = 30.0
     if body.preset and body.preset in PRESETS:
         default_size = PRESETS[body.preset]["default_size"]
@@ -168,6 +321,16 @@ def create_organizer(
     if pack.error:
         raise HTTPException(status_code=400, detail=pack.error)
 
+    config = body.config or {}
+    features: dict[str, bool] = {}
+    if body.preset == "stackable-bin" or config.get("stackable"):
+        features["stackable"] = True
+    if body.preset == "wall-mounted" or config.get("wall_mount"):
+        features["wall_mount"] = True
+    if config.get("qr_pocket") or any(s.label for s in specs):
+        features["qr"] = True
+    config["features"] = features
+
     organizer = Organizer(
         name=body.name,
         outer_width=body.outer_width,
@@ -177,6 +340,7 @@ def create_organizer(
         wall_thickness=wt,
         divider_thickness=dt,
         clearance=body.clearance,
+        config=config,
     )
     db.add(organizer)
     db.flush()
@@ -204,6 +368,7 @@ def create_organizer(
         wt,
         dt,
         pack,
+        features=features,
     )
     organizer.stl_path = str(stl_path)
     db.commit()
