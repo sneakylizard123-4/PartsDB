@@ -20,6 +20,7 @@ import type {
   Page,
   Part,
   PartCreate,
+  PartFacets,
   PartSize,
   Project,
   ProjectRequirements,
@@ -113,6 +114,7 @@ export const api = {
       Object.entries(params).map(([k, v]) => [k, String(v)])
     ))}`),
   getPart: (id: string) => request<Part>(`/parts/${id}`),
+  partFacets: () => request<PartFacets>("/parts/facets"),
   createPart: (body: PartCreate) => request<Part>("/parts", json("POST", body)),
   updatePart: (id: string, body: Partial<PartCreate>) =>
     request<Part>(`/parts/${id}`, json("PATCH", body)),

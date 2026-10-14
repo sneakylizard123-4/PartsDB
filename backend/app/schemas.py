@@ -154,6 +154,13 @@ class PartOut(ORMModel):
     updated_at: datetime
 
 
+class PartFacets(BaseModel):
+    categories: list[str] = Field(default_factory=list)
+    packages: list[str] = Field(default_factory=list)
+    manufacturers: list[str] = Field(default_factory=list)
+    storage_statuses: list[str] = Field(default_factory=list)
+
+
 # ---------- Locations ----------
 
 

@@ -101,6 +101,13 @@ export interface PartCreate {
   reorder_qty?: number | null;
 }
 
+export interface PartFacets {
+  categories: string[];
+  packages: string[];
+  manufacturers: string[];
+  storage_statuses: string[];
+}
+
 // ---------- Locations ----------
 export interface Location {
   id: string;
